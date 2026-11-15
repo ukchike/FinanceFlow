@@ -12,7 +12,7 @@ export function validateBackup(data) {
   }
 
   const normalized = { ...data };
-  const arrays = { transactions: ["transactions", "txns"], accounts: ["accounts"], budgets: ["budgets"] };
+  const arrays = { transactions: ["transactions", "txns"], accounts: ["accounts"], budgets: ["budgets"], projects: ["projects"], commitments: ["commitments"] };
   let found = false;
   for (const [field, aliases] of Object.entries(arrays)) {
     const key = aliases.find(alias => Object.prototype.hasOwnProperty.call(data, alias));
@@ -36,15 +36,17 @@ export function validateBackup(data) {
     found = true;
     if (!isObject(data.profile) || (data.profile.name != null && typeof data.profile.name !== "string")) throw new Error("Backup profile is invalid.");
   }
-  if (!found) throw new Error("No transactions, accounts, budgets, categories, or profile were found in this backup.");
+  if (!found) throw new Error("No transactions, accounts, budgets, projects, commitments, categories, or profile were found in this backup.");
 
-  for (const [field, rows] of Object.entries({ transactions: normalized.transactions, accounts: normalized.accounts, budgets: normalized.budgets })) {
+  for (const [field, rows] of Object.entries({ transactions: normalized.transactions, accounts: normalized.accounts, budgets: normalized.budgets, projects: normalized.projects, commitments: normalized.commitments })) {
     if (!rows) continue;
     if (rows.some(row => {
       if (!isObject(row) || (row.id != null && !["string", "number"].includes(typeof row.id))) return true;
       if (field === "transactions") return row.amount == null || !Number.isFinite(Number(row.amount)) || Number(row.amount) < 0 || (row.type != null && !["income", "expense"].includes(row.type));
       if (field === "accounts") return typeof row.name !== "string" || !row.name.trim();
-      return row.limit == null || !Number.isFinite(Number(row.limit)) || Number(row.limit) < 0;
+      if (field === "budgets") return row.limit == null || !Number.isFinite(Number(row.limit)) || Number(row.limit) < 0;
+      if (field === "projects") return row.id == null || typeof row.name !== "string" || !row.name.trim() || !["active", "paused", "completed", "cancelled"].includes(row.status) || row.budget == null || !Number.isFinite(Number(row.budget)) || Number(row.budget) < 0 || (row.fundedAmount != null && (!Number.isFinite(Number(row.fundedAmount)) || Number(row.fundedAmount) < 0));
+      return row.id == null || row.projectId == null || typeof row.description !== "string" || !row.description.trim() || !Number.isFinite(Number(row.amount)) || Number(row.amount) <= 0 || !["open", "paid", "cancelled"].includes(row.status);
     })) throw new Error(`Backup contains an invalid ${field.slice(0, -1)} record.`);
   }
   return normalized;
