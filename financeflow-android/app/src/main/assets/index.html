@@ -142,6 +142,7 @@ select.inp{cursor:pointer;-webkit-appearance:none;appearance:none;background-ima
 <main class="main-area" id="main"></main>
 <nav class="bnav" id="bnav"></nav>
 <div id="modal-container"></div>
+<script src="backup-core.js"></script>
 <script>
 
 // ── DEFAULT GENERIC CATEGORIES ──
@@ -439,8 +440,9 @@ function rmSub(cat,sub){const ec=getEC(),ic=getIC();if(ec[cat]!==undefined){if(!
 
 // ── ACTIONS ──
 function resetAll(){if(confirm("Clear ALL data and start fresh?")){["ffd_tx","ffd_bd","ffd_acc","ffd_ec","ffd_ic","ffd_pro"].forEach(k=>localStorage.removeItem(k));txns=[];budgets=[];accounts=[{id:"cash",name:"Cash",type:"cash",color:"#22c55e"}];userEC={};userIC={};profile={name:""};save();closeSettings();}}
-function exportData(){const blob=new Blob([JSON.stringify({txns,budgets,accounts,userEC,userIC,profile})],{type:"application/json"});const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download="financeflow_"+new Date().toISOString().split("T")[0]+".json";a.click();}
-function importData(file){if(!file)return;file.text().then(t=>{const d=JSON.parse(t);txns=d.txns||[];budgets=d.budgets||[];accounts=d.accounts||[{id:"cash",name:"Cash",type:"cash",color:"#22c55e"}];userEC=d.userEC||{};userIC=d.userIC||{};profile=d.profile||{};save();render();alert("Imported successfully!");}).catch(e=>alert("Error: "+e.message));}
+function exportData(){try{const blob=new Blob([JSON.stringify({format:FinanceFlowBackup.BACKUP_FORMAT,version:FinanceFlowBackup.BACKUP_VERSION,exportedAt:new Date().toISOString(),txns,budgets,accounts,userEC,userIC,profile},null,2)],{type:"application/json"});const url=URL.createObjectURL(blob);const a=document.createElement("a");a.href=url;a.download="financeflow_"+new Date().toISOString().split("T")[0]+".json";a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}catch(e){alert("Backup could not be created: "+e.message);}}
+async function importData(file){if(!file)return;try{FinanceFlowBackup.assertBackupSize(file.size);const d=FinanceFlowBackup.validateBackup(JSON.parse(await file.text()));const next={txns:d.transactions?FinanceFlowBackup.mergeBackupRecords(txns,d.transactions):txns,budgets:d.budgets?FinanceFlowBackup.mergeBackupRecords(budgets,d.budgets):budgets,accounts:d.accounts?FinanceFlowBackup.mergeBackupRecords(accounts,d.accounts):accounts,userEC:d.categories?.expense||d.userEC?{...userEC,...(d.categories?.expense||d.userEC)}:userEC,userIC:d.categories?.income||d.userIC?{...userIC,...(d.categories?.income||d.userIC)}:userIC,profile:d.profile?{...profile,...d.profile}:profile};const snapshot={txns,budgets,accounts,userEC,userIC,profile};const keys=["ffd_tx","ffd_bd","ffd_acc","ffd_ec","ffd_ic","ffd_pro"],oldValues=keys.map(k=>localStorage.getItem(k));try{txns=next.txns;budgets=next.budgets;accounts=next.accounts;userEC=next.userEC;userIC=next.userIC;profile=next.profile;save();}catch(e){txns=snapshot.txns;budgets=snapshot.budgets;accounts=snapshot.accounts;userEC=snapshot.userEC;userIC=snapshot.userIC;profile=snapshot.profile;keys.forEach((k,i)=>{try{if(oldValues[i]===null)localStorage.removeItem(k);else localStorage.setItem(k,oldValues[i]);}catch{}});throw new Error("Restored data could not be saved: "+e.message);}render();alert("Backup restored. Existing records were kept and missing backup records were added.");}catch(e){alert("Restore failed: "+e.message);}finally{fileInputClear();}}
+function fileInputClear(){["impFile","impFile2"].forEach(id=>{const input=$(id);if(input)input.value="";});}
 function deleteTx(id){if(confirm("Delete this transaction?")){txns=txns.filter(t=>t.id!==id);save();render();}}
 
 // ── MODALS ──

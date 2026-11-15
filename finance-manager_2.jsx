@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, LineChart, Line, CartesianGrid, Legend } from "recharts";
 import * as Papa from "papaparse";
 import * as XLSX from "sheetjs";
+import { BACKUP_FORMAT, BACKUP_VERSION, assertBackupSize, mergeBackupRecords, validateBackup } from "./backup-core.mjs";
 import { Upload, Plus, TrendingUp, TrendingDown, Wallet, Target, BarChart3, List, Settings, ChevronDown, X, Check, AlertTriangle, Loader2, FileSpreadsheet, Brain, Edit3, Trash2, Search, Filter, ArrowUpRight, ArrowDownRight, RefreshCw, CreditCard, Building2, PiggyBank, DollarSign } from "lucide-react";
 
 const CATEGORIES = {
@@ -240,6 +241,7 @@ export default function FinanceManager() {
   const [transactions, setTransactions] = useState([]);
   const [accounts, setAccounts] = useState(DEFAULT_ACCOUNTS);
   const [budgets, setBudgets] = useState(DEFAULT_BUDGETS);
+  const [backupMetadata, setBackupMetadata] = useState({ categories: { expense: {}, income: {} }, profile: {} });
   const [showUpload, setShowUpload] = useState(false);
   const [showAddTx, setShowAddTx] = useState(false);
   const [showAddBudget, setShowAddBudget] = useState(false);
@@ -255,19 +257,26 @@ export default function FinanceManager() {
   const [loading, setLoading] = useState(true);
   const [pendingClassification, setPendingClassification] = useState([]);
   const fileRef = useRef(null);
+  const backupInputRef = useRef(null);
+  const [backupMessage, setBackupMessage] = useState(null);
 
   // Persistence
   useEffect(() => {
     (async () => {
       try {
-        const [txRes, accRes, budRes] = await Promise.all([
+        const [txRes, accRes, budRes, metaRes] = await Promise.all([
           window.storage.get("fm_transactions").catch(() => null),
           window.storage.get("fm_accounts").catch(() => null),
-          window.storage.get("fm_budgets").catch(() => null)
+          window.storage.get("fm_budgets").catch(() => null),
+          window.storage.get("fm_backup_metadata").catch(() => null)
         ]);
         if (txRes?.value) setTransactions(JSON.parse(txRes.value));
         if (accRes?.value) setAccounts(JSON.parse(accRes.value));
         if (budRes?.value) setBudgets(JSON.parse(budRes.value));
+        if (metaRes?.value) {
+          const metadata = JSON.parse(metaRes.value);
+          if (metadata && typeof metadata === "object" && !Array.isArray(metadata)) setBackupMetadata(metadata);
+        }
       } catch {}
       setLoading(false);
     })();
@@ -456,6 +465,66 @@ export default function FinanceManager() {
     }
   };
 
+  const exportBackup = useCallback(() => {
+    try {
+      const blob = new Blob([JSON.stringify({ format: BACKUP_FORMAT, version: BACKUP_VERSION, exportedAt: new Date().toISOString(), transactions, accounts, budgets, ...backupMetadata }, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `financeflow_backup_${new Date().toISOString().slice(0, 10)}.json`;
+      link.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      setBackupMessage({ success: true, msg: "Backup downloaded." });
+    } catch (err) {
+      setBackupMessage({ success: false, msg: `Could not create backup: ${err.message}` });
+    }
+  }, [transactions, accounts, budgets, backupMetadata]);
+
+  const restoreBackup = useCallback(async file => {
+    if (!file) return;
+    try {
+      assertBackupSize(file.size);
+      const backup = validateBackup(JSON.parse(await file.text()));
+      const [existingTx, existingAcc, existingBud, existingMeta] = await Promise.all([
+        window.storage.get("fm_transactions").catch(() => null),
+        window.storage.get("fm_accounts").catch(() => null),
+        window.storage.get("fm_budgets").catch(() => null),
+        window.storage.get("fm_backup_metadata").catch(() => null)
+      ]);
+      const next = {
+        transactions: backup.transactions ? mergeBackupRecords(transactions, backup.transactions) : transactions,
+        accounts: backup.accounts ? mergeBackupRecords(accounts, backup.accounts) : accounts,
+        budgets: backup.budgets ? mergeBackupRecords(budgets, backup.budgets) : budgets,
+        metadata: {
+          categories: Object.fromEntries(["expense", "income"].map(kind => [kind, { ...(backupMetadata.categories?.[kind] || {}), ...(backup.categories?.[kind] || {}) }])),
+          profile: { ...(backupMetadata.profile || {}), ...(backup.profile || {}) }
+        }
+      };
+      // Write the complete restored snapshot before updating React state. Roll back any partial writes on failure.
+      const keys = ["fm_transactions", "fm_accounts", "fm_budgets", "fm_backup_metadata"];
+      const previous = [existingTx?.value, existingAcc?.value, existingBud?.value, existingMeta?.value];
+      const serialized = [JSON.stringify(next.transactions), JSON.stringify(next.accounts), JSON.stringify(next.budgets), JSON.stringify(next.metadata)];
+      let written = 0;
+      try {
+        for (; written < keys.length; written++) await window.storage.set(keys[written], serialized[written]);
+      } catch (err) {
+        await Promise.all(keys.slice(0, written + 1).map((key, index) => previous[index] == null
+          ? window.storage.delete(key).catch(() => {})
+          : window.storage.set(key, previous[index]).catch(() => {})));
+        throw new Error(`Could not save restored data: ${err.message}`);
+      }
+      setTransactions(next.transactions);
+      setAccounts(next.accounts);
+      setBudgets(next.budgets);
+      setBackupMetadata(next.metadata);
+      setBackupMessage({ success: true, msg: "Backup restored. Existing records were kept and missing backup records were added." });
+    } catch (err) {
+      setBackupMessage({ success: false, msg: `Restore failed: ${err.message}` });
+    } finally {
+      if (backupInputRef.current) backupInputRef.current.value = "";
+    }
+  }, [transactions, accounts, budgets, backupMetadata]);
+
   if (loading) {
     return (
       <div style={{ height: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#0c0f1a", color: "#e2e8f0" }}>
@@ -543,6 +612,13 @@ export default function FinanceManager() {
           </div>
         </div>
         <div style={{ display: "flex", gap: 8 }}>
+          <button className="btn btn-ghost" onClick={() => { setBackupMessage(null); backupInputRef.current?.click(); }} style={{ fontSize: 13 }}>
+            Restore Backup
+          </button>
+          <button className="btn btn-ghost" onClick={exportBackup} style={{ fontSize: 13 }}>
+            Backup
+          </button>
+          <input ref={backupInputRef} type="file" accept=".json,application/json" hidden onChange={e => restoreBackup(e.target.files?.[0])} />
           <button className="btn btn-ghost" onClick={() => setShowUpload(true)} style={{ fontSize: 13 }}>
             <Upload size={16} /> Upload Statement
           </button>
@@ -551,6 +627,11 @@ export default function FinanceManager() {
           </button>
         </div>
       </header>
+      {backupMessage && (
+        <div role="status" style={{ padding: "10px 24px", color: backupMessage.success ? "#22c55e" : "#ef4444", background: "var(--card-bg)", borderBottom: "1px solid var(--border)", fontSize: 13 }}>
+          {backupMessage.msg}
+        </div>
+      )}
 
       <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
         {/* Sidebar */}
