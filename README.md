@@ -1,3 +1,6 @@
+Warning: truncated output (original token count: 2269)
+Total output lines: 59
+
 # FinanceFlow
 
 ## Phase 1: Backup and restore
@@ -30,9 +33,7 @@ Android restore uses the system document picker through the WebView file chooser
 
 ## Phase 2: Project management
 
-Both application implementations now support project records with a name, description, start and expected completion dates, budget, opening funded amount and active, paused, completed or cancelled status. Projects and commitments are saved independently from the existing financial record stores (`fm_projects` / `fm_commitments` in React and `ffd_projects` / `ffd_commitments` in Android) and are included in exports and safe, ID-based restore. Older backups that omit these sections continue to restore without removing locally stored projects or commitments.
-
-Project expenses are existing transactions with an optional `projectId`. They remain in ordinary transaction totals and account history and are counted once in project reports; project views do not create a second transaction. Users can link transactions at entry or update the project assignment on an existing transaction. Project reports show selected-period and cumulative expenses, outstanding commitments, opening funding, project balance, budget remaining, funding progress and budget use. Period, category and account filters affect the expense list and selected-period total while cumulative figures remain all-time. Commitment amounts remain commitments until separately recorded as an expense; marking one paid changes its status and does not create another transaction.
+Both application implementations now support project records with a name, description, start and expected completion dates, budget, opening fund…269 tokens truncated…mmitments until separately recorded as an expense; marking one paid changes its status and does not create another transaction.
 
 The canonical calculations live in `project-core.mjs` and are imported by React and generated into `financeflow-android/app/src/main/assets/project-core.js` for Android. Run `node scripts/sync-project-core.mjs` after changing the canonical calculation module. Backup validation is shared through `backup-core.mjs`; run `node scripts/sync-backup-core.mjs` after modifying that module. Tests verify generated copies and both app entry points use the shared modules.
 
@@ -43,6 +44,7 @@ The opening funded amount is a Phase 2 summary value, not a funding ledger. Fund
 - Automated Node tests: 11 passed, 0 failed (`node --test tests/backup-core.test.mjs`), including project backup validation, malformed project rejection, project totals, commitments, report filters, shared-ledger preservation and Android/React shared-calculation parity.
 - Android WebView inline JavaScript syntax check: passed.
 - Android debug APK: `gradlew.bat clean :app:assembleDebug` succeeded with Java 17 and Android SDK 34. The app packages both generated shared modules. The test build uses versionCode 54 / versionName 1.0.54 after confirming the repository's v1.0.53 base tag.
+- The launcher branding retains the v1.0.53 white rising-chart mark on its blue-purple gradient. Android 26+ uses the adaptive icon; older Android versions compose the same foreground mark and gradient through the density fallback resources. The existing in-app header in v1.0.53 has no separate logo image.
 - The Android debug APK is available at [FinanceFlow-phase-2-v1.0.54-debug.apk](../outputs/FinanceFlow-phase-2-v1.0.54-debug.apk) from the checkout's delivery folder. It uses a debug signing key and is for testing. Android can update v1.0.53 in place only if the installed app was signed with the same certificate. An in-place update keeps WebView local storage; do not uninstall to work around a signature error unless the app's data has been backed up.
 - The React implementation is a standalone JSX source in this repository with no package manifest or installed React build/parser toolchain; a React production build or browser workflow test could not be run from this checkout.
 - No Android device or emulator was available. Device installation, project UI, transaction assignment, offline reload, and backup/restore with project data still need the manual checks below.
