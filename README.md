@@ -42,8 +42,8 @@ The opening funded amount is a Phase 2 summary value, not a funding ledger. Fund
 
 - Automated Node tests: 11 passed, 0 failed (`node --test tests/backup-core.test.mjs`), including project backup validation, malformed project rejection, project totals, commitments, report filters, shared-ledger preservation and Android/React shared-calculation parity.
 - Android WebView inline JavaScript syntax check: passed.
-- Android debug APK: `gradlew.bat clean :app:assembleDebug` succeeded with Java 17 and Android SDK 34. The app packages both generated shared modules.
-- The Android debug APK is available at [FinanceFlow-phase-2-debug.apk](../outputs/FinanceFlow-phase-2-debug.apk) from the checkout's delivery folder. It uses the debug signing key and is for testing.
+- Android debug APK: `gradlew.bat clean :app:assembleDebug` succeeded with Java 17 and Android SDK 34. The app packages both generated shared modules. The test build uses versionCode 54 / versionName 1.0.54 after confirming the repository's v1.0.53 base tag.
+- The Android debug APK is available at [FinanceFlow-phase-2-v1.0.54-debug.apk](../outputs/FinanceFlow-phase-2-v1.0.54-debug.apk) from the checkout's delivery folder. It uses a debug signing key and is for testing. Android can update v1.0.53 in place only if the installed app was signed with the same certificate. An in-place update keeps WebView local storage; do not uninstall to work around a signature error unless the app's data has been backed up.
 - The React implementation is a standalone JSX source in this repository with no package manifest or installed React build/parser toolchain; a React production build or browser workflow test could not be run from this checkout.
 - No Android device or emulator was available. Device installation, project UI, transaction assignment, offline reload, and backup/restore with project data still need the manual checks below.
 
