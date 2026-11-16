@@ -10,8 +10,8 @@ android {
         applicationId "com.financeflow.app"
         minSdk 21
         targetSdk 34
-        versionCode 2
-        versionName "1.1"
+        versionCode (project.findProperty("ffVersionCode")?.toString()?.toInteger() ?: 53)
+        versionName (project.findProperty("ffVersionName")?.toString() ?: "1.2.53")
     }
 
     // Google Play Protect hard-blocks sideloaded apps that combine "unknown developer" with a
@@ -36,14 +36,16 @@ android {
 
     signingConfigs {
         release {
-            // Fixed keystore checked into the repo so every CI build (fresh runner
-            // each time) signs with the same key. Without this, AGP falls back to
-            // an auto-generated debug.keystore that differs per machine/run, so
-            // installing a new build fails ("App not installed") over an existing one.
-            storeFile file('financeflow-release.keystore')
-            storePassword 'financeflow123'
-            keyAlias 'financeflow'
-            keyPassword 'financeflow123'
+            def privateStore = System.getenv("FF_SIGNING_STORE_FILE")
+            def privateStorePassword = System.getenv("FF_SIGNING_STORE_PASSWORD")
+            def privateAlias = System.getenv("FF_SIGNING_KEY_ALIAS")
+            def privateKeyPassword = System.getenv("FF_SIGNING_KEY_PASSWORD")
+            if (privateStore && privateStorePassword && privateAlias && privateKeyPassword) {
+                storeFile file(privateStore)
+                storePassword privateStorePassword
+                keyAlias privateAlias
+                keyPassword privateKeyPassword
+            }
         }
     }
 

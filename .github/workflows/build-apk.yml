@@ -2,9 +2,26 @@ name: Build FinanceFlow APK
 
 on:
   push:
+    branches:
+      - 'claude/magical-faraday-4anqxg'
     paths:
       - 'financeflow-android/**'
       - 'tests/**'
+      - 'project-core.mjs'
+      - 'backup-core.mjs'
+      - 'finance-manager_2.jsx'
+      - 'scripts/sync-project-core.mjs'
+      - '.github/workflows/build-apk.yml'
+  pull_request:
+    branches:
+      - 'claude/magical-faraday-4anqxg'
+    paths:
+      - 'financeflow-android/**'
+      - 'tests/**'
+      - 'project-core.mjs'
+      - 'backup-core.mjs'
+      - 'finance-manager_2.jsx'
+      - 'scripts/sync-project-core.mjs'
       - '.github/workflows/build-apk.yml'
   workflow_dispatch:
 
@@ -35,8 +52,9 @@ jobs:
 
       - name: Compact entry and transfer browser checks
         run: |
-          npm install --no-save --prefix /tmp/financeflow-ui playwright@1.56.1
+          npm install --no-save --prefix /tmp/financeflow-ui playwright@1.56.1 @babel/parser@7
           /tmp/financeflow-ui/node_modules/.bin/playwright install --with-deps chromium
+          NODE_PATH=/tmp/financeflow-ui/node_modules node tests/react-source-check.cjs
           NODE_PATH=/tmp/financeflow-ui/node_modules node tests/ui-regression.cjs
 
       - name: Set up JDK 17
@@ -75,11 +93,29 @@ jobs:
           with open(os.environ['GITHUB_ENV'], 'a') as env:
               env.write('FF_SIGNING_STORE_FILE=' + str(store) + '\n')
 
+      - name: Require private signing secrets for a release
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/claude/magical-faraday-4anqxg'
+        shell: bash
+        run: |
+          for key in FF_SIGNING_KEYSTORE_BASE64 FF_SIGNING_STORE_PASSWORD FF_SIGNING_KEY_ALIAS FF_SIGNING_KEY_PASSWORD FF_SIGNING_STORE_FILE; do
+            if [ -z "${!key}" ]; then
+              echo "Missing required Actions secret: $key" >&2
+              exit 1
+            fi
+          done
+
+      - name: Build debug APKs for pull request checks
+        if: github.event_name == 'pull_request'
+        run: ./gradlew -PffVersionCode=${{ github.run_number }} -PffVersionName=1.2.${{ github.run_number }} testStandardDebugUnitTest assembleStandardDebug assembleFullDebug
+        working-directory: financeflow-android
+
       - name: Build Release APKs (standard + full)
-        run: ./gradlew testStandardDebugUnitTest assembleStandardRelease assembleFullRelease
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/claude/magical-faraday-4anqxg'
+        run: ./gradlew -PffVersionCode=${{ github.run_number }} -PffVersionName=1.2.${{ github.run_number }} testStandardDebugUnitTest assembleStandardRelease assembleFullRelease
         working-directory: financeflow-android
 
       - name: Rename APKs
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/claude/magical-faraday-4anqxg'
         run: |
           STD=$(find financeflow-android/app/build/outputs/apk/standard/release -maxdepth 1 -name "app-standard-release*.apk" | head -1)
           FULL=$(find financeflow-android/app/build/outputs/apk/full/release -maxdepth 1 -name "app-full-release*.apk" | head -1)
@@ -89,6 +125,7 @@ jobs:
           mv "$FULL" financeflow-android/app/build/outputs/apk/full/release/FinanceFlow-Full.apk
 
       - name: Upload APK artifacts
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/claude/magical-faraday-4anqxg'
         uses: actions/upload-artifact@v4
         with:
           name: FinanceFlow-APK
@@ -98,6 +135,7 @@ jobs:
           retention-days: 90
 
       - name: Create GitHub Release
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/claude/magical-faraday-4anqxg'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v1.0.${{ github.run_number }}
