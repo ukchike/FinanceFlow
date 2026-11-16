@@ -30,7 +30,7 @@ permissions:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     env:
       FF_SIGNING_KEYSTORE_BASE64: ${{ secrets.FF_SIGNING_KEYSTORE_BASE64 }}
@@ -144,12 +144,12 @@ jobs:
             FinanceFlow Android APK
 
             Two builds are provided:
-            - **FinanceFlow.apk** (recommended) — omits notification-access bank-alert detection.
-            - **FinanceFlow-Full.apk** — adds the optional "Bank Alerts" auto-detect feature (reads notification text for bank debit/credit alerts). Review the requested permission and install only from the release source you trust.
+            - **FinanceFlow.apk** (recommended) â omits notification-access bank-alert detection.
+            - **FinanceFlow-Full.apk** â adds the optional "Bank Alerts" auto-detect feature (reads notification text for bank debit/credit alerts). Review the requested permission and install only from the release source you trust.
 
             **Install instructions:**
             1. Download the APK you want below
-            2. On your Android phone: Settings → Security → enable "Install unknown apps"
+            2. On your Android phone: Settings â Security â enable "Install unknown apps"
             3. Open the APK and tap Install
           files: |
             financeflow-android/app/build/outputs/apk/standard/release/FinanceFlow.apk
