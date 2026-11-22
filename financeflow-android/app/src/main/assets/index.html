@@ -294,6 +294,7 @@ button:focus-visible,[tabindex]:focus-visible{outline:3px solid var(--accent);ou
 <div id="modal-container"></div>
 <script src="finance-core.js"></script>
 <script src="statement-import.js"></script>
+<script src="project-core.js"></script>
 <script>
 
 // Android 6+ stores financial records in encrypted app-private storage.
@@ -342,7 +343,7 @@ const ACC_COLORS=["#22c55e","#3b82f6","#f97316","#8b5cf6","#ec4899","#06b6d4","#
 const ACCENT_COLORS=[{n:"Blue",h:"#3b82f6",rgb:"59,130,246"},{n:"Green",h:"#22c55e",rgb:"34,197,94"},{n:"Purple",h:"#8b5cf6",rgb:"139,92,246"},{n:"Pink",h:"#ec4899",rgb:"236,72,153"},{n:"Orange",h:"#f97316",rgb:"249,115,22"},{n:"Teal",h:"#06b6d4",rgb:"6,182,212"},{n:"Gold",h:"#eab308",rgb:"234,179,8"},{n:"Red",h:"#ef4444",rgb:"239,68,68"}];
 
 // ── STATE ──
-let txns=[],budgets=[],accounts=[],userEC={},userIC={},profile={name:""};
+let txns=[],budgets=[],accounts=[],projects=[],commitments=[],userEC={},userIC={},profile={name:""};
 let importHistory=[],statementReview=null,statementLoadToken=0;
 let scheduledPayments=[];
 let recurring=[];           // Feature 2: recurring transaction templates
@@ -364,6 +365,7 @@ function setNbPeriod(p){nbPeriod=p;render();}
 let editingSub=null; // "cat|||sub" currently open for rename/move in Categories tab
 let editingCat=null; // category name currently open for rename in Categories tab
 let expandedBudget=null,expandedCatSet=null,expandedSplit=null;
+let editingProjectId=null,selectedProjectId=null,projectPeriod=new Date().toISOString().slice(0,7),projectCategory="all",projectAccount="all";
 // Collapses transactions sharing a splitGroupId into one combined display entry (used only
 // outside multi-select mode — see rTx). Groups by first-occurrence position, not adjacency, so
 // it stays correct even if an undo or import re-inserts a line out of order.
@@ -723,6 +725,8 @@ function save(){
   appStorage.setItem("ffd_tx",JSON.stringify(txns));
   appStorage.setItem("ffd_bd",JSON.stringify(budgets));
   appStorage.setItem("ffd_acc",JSON.stringify(accounts));
+  appStorage.setItem("ffd_projects",JSON.stringify(projects));
+  appStorage.setItem("ffd_commitments",JSON.stringify(commitments));
   appStorage.setItem("ffd_ec",JSON.stringify(userEC));
   appStorage.setItem("ffd_ic",JSON.stringify(userIC));
   appStorage.setItem("ffd_pro",JSON.stringify(profile));
@@ -755,6 +759,8 @@ function load(){
   try{const b=appStorage.getItem("ffd_bd");if(b)budgets=JSON.parse(b);}catch(e){}
   budgets.forEach(b=>{if(!b.period)b.period="month";}); // existing budgets predate per-budget periods — default to Monthly, matching prior behavior
   try{const a=appStorage.getItem("ffd_acc");if(a)accounts=JSON.parse(a);}catch(e){}
+  try{const p=appStorage.getItem("ffd_projects");if(p){projects=JSON.parse(p);if(!Array.isArray(projects))projects=[];}}catch(e){projects=[];}
+  try{const c=appStorage.getItem("ffd_commitments");if(c){commitments=JSON.parse(c);if(!Array.isArray(commitments))commitments=[];}}catch(e){commitments=[];}
   try{const ec=appStorage.getItem("ffd_ec");if(ec)userEC=JSON.parse(ec);}catch(e){}
   try{const ic=appStorage.getItem("ffd_ic");if(ic)userIC=JSON.parse(ic);}catch(e){}
   try{const p=appStorage.getItem("ffd_pro");if(p)profile=JSON.parse(p);}catch(e){}
@@ -936,7 +942,7 @@ function chgBadge(a,b,isExp){if(a===0&&b===0)return`<span class="chg chg-nil">&m
 
 // ── NAV ──
 function renderNav(){
-  const items=[{id:"dashboard",icon:"&#128202;",l:"Home"},{id:"stats",icon:"&#128200;",l:"Stats"},{id:"transactions",icon:"&#128203;",l:"History"},{id:"budgets",icon:"&#127919;",l:"Budgets"}];
+  const items=[{id:"dashboard",icon:"&#128202;",l:"Home"},{id:"stats",icon:"&#128200;",l:"Stats"},{id:"transactions",icon:"&#128203;",l:"History"},{id:"budgets",icon:"&#127919;",l:"Budgets"},{id:"projects",icon:"&#128188;",l:"Projects"}];
   $("bnav").innerHTML=items.map(n=>`<button aria-label="${n.id==='transactions'?'Transactions':n.l}" ${!settingsOpen&&V===n.id?'aria-current="page"':''} class="bnav-btn ${!settingsOpen&&V===n.id?"active":""}" onclick="goTo('${n.id}')"><span class="ni" aria-hidden="true">${n.icon}</span>${n.l}</button>`).join("")+`<button aria-label="Settings" ${settingsOpen?'aria-current="page"':''} class="bnav-btn ${settingsOpen?"active":""}" onclick="openSettings('home')"><span class="ni" aria-hidden="true">&#9881;</span>Settings</button>`;
   const av=$("avatarBtn");if(av)av.innerHTML=profile.name?profile.name.charAt(0).toUpperCase():"&#9881;";
   const tc=$("txCount");if(tc)tc.textContent=txns.length.toLocaleString()+" transactions";
@@ -957,6 +963,22 @@ function viewBudgetTx(cat){closePP();fCat=cat;fType="expense";fAcc="all";search=
 // Transactions screen, and letting them through made the dashboard silently report totals for
 // (say) one subcategory after a viewSubTx() drill-down, with nothing on screen to explain it.
 function getPeriodTx(){const range=getRangeFor(pMode,pDate);return txns.filter(t=>t.date>=range.startStr&&t.date<=range.endStr);}
+function projectStatusLabel(status){return({active:"Active",paused:"Paused",completed:"Completed",cancelled:"Cancelled"})[status]||"Active";}
+function setProjectStatus(id,status){const p=projects.find(x=>x.id===id);if(!p)return;p.status=status;p.updatedAt=new Date().toISOString();save();render();}
+function saveProjectForm(id){const name=$("projectName")?.value.trim(),budget=Number($("projectBudget")?.value),fundedAmount=Number($("projectFunded")?.value||0);if(!name)return alert("Enter a project name.");if(!Number.isFinite(budget)||budget<0)return alert("Enter a valid project budget.");if(!Number.isFinite(fundedAmount)||fundedAmount<0)return alert("Enter a valid funded amount.");const startDate=$("projectStart")?.value||new Date().toISOString().slice(0,10),expectedEndDate=$("projectEnd")?.value||"";if(expectedEndDate&&expectedEndDate<startDate)return alert("Expected completion must be on or after the start date.");const status=$("projectStatus")?.value||"active",data={name,description:$("projectDescription")?.value.trim()||"",startDate,expectedEndDate,budget,fundedAmount,status,updatedAt:new Date().toISOString()};if(id==="new"){const project={id:uid(),...data,createdAt:new Date().toISOString()};projects.push(project);selectedProjectId=project.id;}else{const project=projects.find(x=>x.id===id);if(project)Object.assign(project,data);}editingProjectId=null;save();render();}
+function addProjectCommitment(projectId){const description=$("commitDescription")?.value.trim(),amount=Number($("commitAmount")?.value);if(!description)return alert("Enter a commitment description.");if(!Number.isFinite(amount)||amount<=0)return alert("Enter a commitment amount greater than zero.");commitments.push({id:uid(),projectId,description,amount,dueDate:$("commitDue")?.value||"",status:"open",createdAt:new Date().toISOString()});save();render();}
+function updateCommitment(id,status){const item=commitments.find(x=>x.id===id);if(!item)return;item.status=status;save();render();}
+function rProjects(){
+  const selected=projects.find(p=>p.id===selectedProjectId)||projects[0];if(selected)selectedProjectId=selected.id;
+  const formProject=editingProjectId&&editingProjectId!=="new"?projects.find(p=>p.id===editingProjectId):null;
+  const form=editingProjectId?`<div class="card"><div class="fz13 fw7 mb10">${editingProjectId==="new"?"New Project":"Edit Project"}</div><div style="display:grid;gap:8px"><input class="inp" id="projectName" placeholder="Project name" value="${esc(formProject?.name)}"><textarea class="inp" id="projectDescription" placeholder="Description" rows="2">${esc(formProject?.description)}</textarea><div class="grid2"><div><span class="edit-label">Start date</span><input class="inp" id="projectStart" type="date" value="${formProject?.startDate||new Date().toISOString().slice(0,10)}"></div><div><span class="edit-label">Expected completion</span><input class="inp" id="projectEnd" type="date" value="${formProject?.expectedEndDate||""}"></div></div><div class="grid2"><div><span class="edit-label">Budget (${esc(currency.symbol)})</span><input class="inp" id="projectBudget" type="number" min="0" value="${formProject?.budget??""}" placeholder="0"></div><div><span class="edit-label">Initial funded amount (${esc(currency.symbol)})</span><input class="inp" id="projectFunded" type="number" min="0" value="${formProject?.fundedAmount??0}"></div></div><div><span class="edit-label">Status</span><select class="inp" id="projectStatus">${["active","paused","completed","cancelled"].map(s=>`<option value="${s}" ${(formProject?.status||"active")==s?"selected":""}>${projectStatusLabel(s)}</option>`).join("")}</select></div></div><div class="flex g8 mt8"><button class="btn btn-p" onclick="saveProjectForm('${editingProjectId}')">Save Project</button><button class="btn btn-g" onclick="editingProjectId=null;render()">Cancel</button></div></div>`:"";
+  const cards=projects.map(p=>{const summary=FinanceFlowProject.summarizeProject(p,txns,commitments,{},primaryAmount),spent=summary.cumulativeSpend,committed=summary.committed,funded=summary.funded,pct=summary.budgetUtilization;return`<button class="card" style="text-align:left;width:100%;cursor:pointer;border-color:${selected?.id===p.id?"var(--accent)":"var(--border)"}" onclick="selectedProjectId='${p.id}';render()"><div class="flex-b"><span class="fz12 fw7">${esc(p.name)}</span><span class="fz9 ${p.status==="active"?"green":"muted"}">${projectStatusLabel(p.status)}</span></div><div class="fz10 muted mt4">Funded ${fmtK(funded)} · spent ${fmtK(spent)} · committed ${fmtK(committed)}</div><div class="bar-track mt6"><div class="bar-fill" style="width:${pct}%;background:${pct>=100?"var(--red)":"var(--accent)"}"></div></div></button>`;}).join("");
+  let detail="";if(selected){const allProjectTx=txns.filter(t=>t.projectId===selected.id&&t.type==="expense"),matching=allProjectTx.filter(t=>(projectPeriod==="all"||String(t.date||"").slice(0,7)===projectPeriod)&&(projectCategory==="all"||t.category===projectCategory)&&(projectAccount==="all"||t.accountId===projectAccount)),allSpend=allProjectTx.reduce((s,t)=>s+primaryAmount(t),0),monthSpend=matching.reduce((s,t)=>s+primaryAmount(t),0),openCommitments=commitments.filter(c=>c.projectId===selected.id&&c.status==="open"),committed=openCommitments.reduce((s,c)=>s+Number(c.amount||0),0),remaining=Number(selected.budget||0)-allSpend-committed,funded=Number(selected.fundedAmount||0),balance=funded-allSpend-committed,usedPct=Number(selected.budget)>0?Math.min((allSpend+committed)/Number(selected.budget)*100,100):0,fundingPct=Number(selected.budget)>0?Math.min(funded/Number(selected.budget)*100,100):0;const txRows=matching.slice().sort((a,b)=>String(b.date).localeCompare(String(a.date))).map(t=>`<div class="tx-row" onclick="showModal('edit','${t.id}')"><div style="flex:1"><div class="fz11 fw6">${esc(t.description||t.category)}</div><div class="fz9 muted">${esc(t.date)} · ${esc(t.category)} · ${esc(accounts.find(a=>a.id===t.accountId)?.name||"")}</div></div><span class="fz11 fw7 red">-${fmt(primaryAmount(t))}</span></div>`).join("")||`<div class="muted fz10 tac" style="padding:14px">No project expenses match these filters.</div>`;const commitmentRows=openCommitments.map(c=>`<div class="flex-b" style="padding:8px 0;border-bottom:1px solid var(--border)"><div><div class="fz10 fw6">${esc(c.description)}</div><div class="fz9 muted">${c.dueDate?"Due "+esc(c.dueDate):"No due date"}</div></div><div class="flex g6"><span class="fz10 fw7">${fmt(c.amount)}</span><button class="btn btn-g btn-sm" onclick="updateCommitment('${c.id}','paid')">Paid</button><button class="btn btn-g btn-sm" onclick="updateCommitment('${c.id}','cancelled')">Cancel</button></div></div>`).join("")||`<div class="fz10 muted">No outstanding commitments.</div>`;
+    detail=`<div class="card"><div class="flex-b mb8"><div><div class="fz14 fw8">${esc(selected.name)}</div><div class="fz10 muted">${esc(selected.startDate)}${selected.expectedEndDate?" · expected "+esc(selected.expectedEndDate):""}</div></div><button class="btn btn-g btn-sm" onclick="editingProjectId='${selected.id}';render()">Edit</button></div><div class="fz10 muted mb8">${esc(selected.description||"No description")}</div><div class="grid2 mb8"><div class="stat"><div class="stat-label">Selected-period expenses</div><div class="stat-val red">${fmt(monthSpend)}</div></div><div class="stat"><div class="stat-label">Cumulative expenses</div><div class="stat-val red">${fmt(allSpend)}</div></div><div class="stat"><div class="stat-label">Total funding</div><div class="stat-val green">${fmt(funded)}</div></div><div class="stat"><div class="stat-label">Outstanding commitments</div><div class="stat-val">${fmt(committed)}</div></div><div class="stat"><div class="stat-label">Project balance</div><div class="stat-val ${balance<0?"red":"green"}">${fmt(balance)}</div></div><div class="stat"><div class="stat-label">Budget remaining</div><div class="stat-val ${remaining<0?"red":"green"}">${fmt(remaining)}</div></div></div><div class="flex-b fz10 muted mb4"><span>Funding progress</span><span>${fundingPct.toFixed(0)}% of budget</span></div><div class="bar-track mb8"><div class="bar-fill" style="width:${fundingPct}%;background:var(--green)"></div></div><div class="flex-b fz10 muted mb4"><span>Budget utilisation (expenses + commitments)</span><span>${usedPct.toFixed(0)}%</span></div><div class="bar-track mb10"><div class="bar-fill" style="width:${usedPct}%;background:${usedPct>=100?"var(--red)":"var(--accent)"}"></div></div><div class="grid2 mb12"><div><span class="edit-label">Status</span><select class="inp" onchange="setProjectStatus('${selected.id}',this.value)">${["active","paused","completed","cancelled"].map(s=>`<option value="${s}" ${selected.status===s?"selected":""}>${projectStatusLabel(s)}</option>`).join("")}</select></div><div><span class="edit-label">Report period</span><input class="inp" type="month" value="${projectPeriod==="all"?"":projectPeriod}" onchange="projectPeriod=this.value||'all';render()"><button class="btn btn-g btn-sm mt4" onclick="projectPeriod='all';render()">All time</button></div></div><div class="grid2 mb10"><select class="inp" onchange="projectCategory=this.value;render()"><option value="all">All categories</option>${allEC().map(c=>`<option value="${esc(c)}" ${projectCategory===c?"selected":""}>${esc(c)}</option>`).join("")}</select><select class="inp" onchange="projectAccount=this.value;render()"><option value="all">All accounts</option>${accounts.map(a=>`<option value="${esc(a.id)}" ${projectAccount===a.id?"selected":""}>${esc(a.name)}</option>`).join("")}</select></div><div class="fz11 fw7 mb6">Project expenses (${matching.length})</div>${txRows}</div><div class="card"><div class="fz12 fw7 mb8">Outstanding commitments</div>${commitmentRows}<div class="divider"></div><div class="fz11 fw7 mb6">Record a commitment</div><div style="display:grid;gap:7px"><input class="inp" id="commitDescription" placeholder="What is committed?"><input class="inp" id="commitAmount" type="number" min="0.01" placeholder="Amount (${esc(currency.symbol)})"><input class="inp" id="commitDue" type="date"><button class="btn btn-p" onclick="addProjectCommitment('${selected.id}')">Add commitment</button></div><div class="fz9 muted mt6">Record the actual expense separately as a transaction linked to this project.</div></div>`;
+  }
+  $("main").innerHTML=`<div class="flex-b mb10"><div><div class="fz16 fw8">Projects</div><div class="fz10 muted">Track budgets, commitments and linked expenses.</div></div><button class="btn btn-p btn-sm" onclick="editingProjectId='new';render()">+ New project</button></div>${form}<div class="grid2">${cards||`<div class="card tac muted">No projects yet. Create one to start tracking project costs.</div>`}</div>${detail}`;
+}
+
 function render(){
   renderNav();
   if(settingsOpen){renderSettings();return;}
@@ -964,7 +986,7 @@ function render(){
   const f=getPeriodTx();
   const inc=f.filter(t=>t.type==="income").reduce((s,t)=>FinanceCore.round(s+primaryAmount(t)),0);
   const exp=f.filter(t=>t.type==="expense").reduce((s,t)=>FinanceCore.round(s+primaryAmount(t)),0);
-  if(V==="dashboard")rDash(f,inc,exp);else if(V==="stats")rStats(inc,exp);else if(V==="budgets")rBud(f);
+  if(V==="dashboard")rDash(f,inc,exp);else if(V==="stats")rStats(inc,exp);else if(V==="budgets")rBud(f);else if(V==="projects")rProjects();
   $("main").insertAdjacentHTML("afterbegin",financialNoticeHTML()+scheduledNoticeHTML());
 }
 // Persisted separately from profile.name (rather than inferring "done" from the name being
@@ -2255,8 +2277,8 @@ async function exportEncryptedData(){
   }catch(e){alert(e.message);}finally{encryptedBackupBusy=false;}
 }
 function backupData(){return {
-    version:3,exportedAt:new Date().toISOString(),
-    txns,budgets,accounts,userEC,userIC,profile,recurring,scheduledPayments,importHistory,importRules,
+    version:4,exportedAt:new Date().toISOString(),
+    txns,budgets,accounts,projects,commitments,userEC,userIC,profile,recurring,scheduledPayments,importHistory,importRules,
     goals,catOrder,homeLayout,hiddenDefaultCats,userTags,
     homeCards:{balance:showBalanceHome,accounts:showAccountsHome,networthchart:showNetworthChartHome},
     hiddenHomeSections,
@@ -2265,13 +2287,13 @@ function backupData(){return {
 }
 
 // ── DATA ACTIONS ──
-function resetAll(){if(confirm("Clear ALL data and start fresh?")){["ffd_tx","ffd_bd","ffd_acc","ffd_ec","ffd_ic","ffd_pro","ffd_rec","ffd_bio","ffd_hidecats","ffd_bankalerts","ffd_homelayout","ffd_catorder","ffd_goals","ffd_pin","ffd_reminders","ffd_onboard","ffd_usertags","ffd_homecards","ffd_hiddensections"].forEach(k=>appStorage.removeItem(k));txns=[];budgets=[];importRules=[];accounts=[{id:"cash",name:"Cash",type:"cash",color:"#22c55e",currency:currency.code}];userEC={};userIC={};profile={name:""};recurring=[];scheduledPayments=[];importHistory=[];biometricEnabled=false;hiddenDefaultCats={expense:[],income:[]};bankAlertsEnabled=false;homeLayout=DEFAULT_HOME_LAYOUT.slice();showBalanceHome=true;showAccountsHome=true;showNetworthChartHome=false;hiddenHomeSections=["trend"];catOrder={expense:[],income:[]};goals=[];userTags=[];pinHash="";pinLockActive=false;remindersEnabled=false;onboardComplete=false;onboardStep=0;if(window.Android&&window.Android.cancelReminders)window.Android.cancelReminders();save();closeSettings();}}
+function resetAll(){if(confirm("Clear ALL data and start fresh?")){["ffd_tx","ffd_bd","ffd_acc","ffd_projects","ffd_commitments","ffd_ec","ffd_ic","ffd_pro","ffd_rec","ffd_bio","ffd_hidecats","ffd_bankalerts","ffd_homelayout","ffd_catorder","ffd_goals","ffd_pin","ffd_reminders","ffd_onboard","ffd_usertags","ffd_homecards","ffd_hiddensections"].forEach(k=>appStorage.removeItem(k));txns=[];budgets=[];projects=[];commitments=[];importRules=[];accounts=[{id:"cash",name:"Cash",type:"cash",color:"#22c55e",currency:currency.code}];userEC={};userIC={};profile={name:""};recurring=[];scheduledPayments=[];importHistory=[];biometricEnabled=false;hiddenDefaultCats={expense:[],income:[]};bankAlertsEnabled=false;homeLayout=DEFAULT_HOME_LAYOUT.slice();showBalanceHome=true;showAccountsHome=true;showNetworthChartHome=false;hiddenHomeSections=["trend"];catOrder={expense:[],income:[]};goals=[];userTags=[];pinHash="";pinLockActive=false;remindersEnabled=false;onboardComplete=false;onboardStep=0;if(window.Android&&window.Android.cancelReminders)window.Android.cancelReminders();save();closeSettings();}}
 function validateBackupData(d){
   const fail=m=>{throw new Error(m);},obj=v=>v&&typeof v==='object'&&!Array.isArray(v);
   if(!obj(d)||!Array.isArray(d.txns)||!Array.isArray(d.accounts)||!d.accounts.length)fail('Not a FinanceFlow backup: transactions and accounts are required.');
-  if(d.version!==undefined&&(!Number.isInteger(d.version)||d.version<1||d.version>3))fail('Unsupported backup version.');
+  if(d.version!==undefined&&(!Number.isInteger(d.version)||d.version<1||d.version>4))fail('Unsupported backup version.');
   const inspect=v=>{if(!v||typeof v!=='object')return;for(const k of Object.keys(v)){if(['__proto__','prototype','constructor'].includes(k))fail('Unsafe field in backup.');inspect(v[k]);}};inspect(d);
-  const arrayKeys=['importRules','budgets','recurring','scheduledPayments','importHistory','goals','userTags','homeLayout','hiddenHomeSections'];
+  const arrayKeys=['importRules','budgets','projects','commitments','recurring','scheduledPayments','importHistory','goals','userTags','homeLayout','hiddenHomeSections'];
   for(const k of arrayKeys)if(d[k]!==undefined&&!Array.isArray(d[k]))fail(k+' must be a list.');
   for(const k of ['profile','userEC','userIC','catOrder','hiddenDefaultCats','homeCards'])if(d[k]!==undefined&&!obj(d[k]))fail(k+' must be an object.');
   for(const k of ['userEC','userIC'])for(const [name,subs] of Object.entries(d[k]||{}))if(!name||!Array.isArray(subs)||subs.some(x=>typeof x!=='string'))fail('Invalid custom categories.');
@@ -2298,6 +2320,11 @@ function validateBackupData(d){
     }
   }
   for(const b of d.budgets||[]){if(!obj(b)||typeof b.cat!=='string'||!finite(b.limit)||b.limit<0||!Array.isArray(b.subs)||b.subs.some(x=>!obj(x)||typeof x.name!=='string'||!finite(x.limit)||x.limit<0))fail('Invalid budget.');}
+  const projectIds=new Set();
+  for(const p of d.projects||[]){if(!obj(p)||typeof p.id!=='string'||!p.id||projectIds.has(p.id)||typeof p.name!=='string'||!p.name.trim()||!['active','paused','completed','cancelled'].includes(p.status)||!finite(p.budget)||p.budget<0||(p.fundedAmount!==undefined&&(!finite(p.fundedAmount)||p.fundedAmount<0))||(p.startDate!==undefined&&!FinanceCore.date(p.startDate))||(p.expectedEndDate&&!FinanceCore.date(p.expectedEndDate)))fail('Invalid project.');projectIds.add(p.id);}
+  for(const t of d.txns){if(t.projectId!==undefined&&t.projectId!==''&&!projectIds.has(t.projectId))fail('A transaction refers to a project missing from the backup.');}
+  const commitmentIds=new Set();
+  for(const c of d.commitments||[]){if(!obj(c)||typeof c.id!=='string'||!c.id||commitmentIds.has(c.id)||!projectIds.has(c.projectId)||typeof c.description!=='string'||!c.description.trim()||!finite(c.amount)||c.amount<=0||!['open','paid','cancelled'].includes(c.status)||(c.dueDate&&!FinanceCore.date(c.dueDate)))fail('Invalid project commitment.');commitmentIds.add(c.id);}
   for(const g of d.goals||[])if(!obj(g)||typeof g.name!=='string'||!finite(g.target)||g.target<0)fail('Invalid savings goal.');
   for(const r of d.importRules||[])if(!obj(r)||typeof r.phrase!=='string'||!['income','expense'].includes(r.type)||typeof r.category!=='string'||(r.subcategory!==undefined&&typeof r.subcategory!=='string'))fail('Invalid description rule.');
   for(const h of d.importHistory||[])if(!obj(h)||typeof h.filename!=='string'||!Number.isInteger(h.count)||h.count<0)fail('Invalid import history.');
@@ -2307,6 +2334,7 @@ function applyBackupData(d){
   importRules=Array.isArray(d.importRules)?d.importRules:[];
   txns=d.txns||[];
   budgets=d.budgets||[];budgets.forEach(b=>{if(!b.period)b.period="month";});
+  projects=Array.isArray(d.projects)?d.projects:projects;commitments=Array.isArray(d.commitments)?d.commitments:commitments;
   accounts=d.accounts||[{id:"cash",name:"Cash",type:"cash",color:"#22c55e"}];
   userEC=d.userEC||{};userIC=d.userIC||{};profile=d.profile||{};recurring=d.recurring||[];importHistory=Array.isArray(d.importHistory)?d.importHistory:[];scheduledPayments=Array.isArray(d.scheduledPayments)?d.scheduledPayments:[];
   // These four were previously dropped on restore. hiddenDefaultCats especially: without it,
@@ -2417,6 +2445,7 @@ function showModal(type,id){
     <div><span class="edit-label">Amount (selected account currency)</span><div class="flex g6"><input class="inp" type="text" inputmode="decimal" id="eAmt" value="${t.amount.toLocaleString("en-US",{maximumFractionDigits:2})}" oninput="formatAmountInput(this)"><button type="button" class="btn btn-g" style="padding:12px" onclick="openCalc('eAmt')" title="Calculator">&#129518;</button></div></div>
     <div><span class="edit-label">Category</span><button type="button" class="inp" style="text-align:left;display:flex;align-items:center;justify-content:space-between" onclick="openCatPicker('_eType','_eCat','_eSub','eCatLabel')"><span id="eCatLabel"></span><span class="muted">&#8250;</span></button></div>
     <div><span class="edit-label">Account</span><button type="button" class="inp" style="text-align:left;display:flex;align-items:center;justify-content:space-between" onclick="openAccPicker('_eAcc','eAccLabel')"><span id="eAccLabel"></span><span class="muted">&#8250;</span></button></div>
+    <div><span class="edit-label">Project (optional)</span><select class="inp" id="eProject"><option value="">Personal / unassigned</option>${projects.map(p=>`<option value="${esc(p.id)}" ${p.id===t.projectId?"selected":""}>${esc(p.name)}</option>`).join("")}</select></div>
     <details class="entry-extras"><summary>Receipt and reconciliation</summary><div><span class="edit-label">Receipt</span><div id="eReceiptBox">${receiptBoxHTML("_eReceipt","e")}</div></div>
     <div class="toggle-wrap" style="background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:12px"><div><div class="fz12 fw6">&#9989; Reconciled</div><div class="fz10 muted mt4">Confirmed against your bank statement</div></div><label class="toggle"><input type="checkbox" id="eCleared" ${t.cleared?"checked":""}><span class="toggle-slider"></span></label></div></details></div>
     <button class="btn btn-p w100 entry-footer" style="justify-content:center;padding:14px;font-size:14px" onclick="saveTx('${t.id}')">&#10003; Save</button></div></div>`;
@@ -2448,6 +2477,7 @@ function showModal(type,id){
       <div><span class="edit-label">Category</span><button type="button" class="inp" style="text-align:left;display:flex;align-items:center;justify-content:space-between" onclick="openCatPicker('_txT','_txCat','_txSub','txCatLabel')"><span id="txCatLabel"></span><span class="muted">&#8250;</span></button></div>
       <div class="tar"><button type="button" class="btn" style="background:none;border:none;color:var(--accent);font-size:11px;padding:0" onclick="toggleSplitMode()">&#8646; Split into multiple categories</button></div>`}
       <div><span class="edit-label">Account</span><button type="button" class="inp" style="text-align:left;display:flex;align-items:center;justify-content:space-between" onclick="openAccPicker('_txAcc','txAccLabel')"><span id="txAccLabel"></span><span class="muted">&#8250;</span></button></div>
+      <div><span class="edit-label">Project (optional)</span><select class="inp" id="txProject"><option value="">Personal / unassigned</option>${projects.map(p=>`<option value="${esc(p.id)}">${esc(p.name)}</option>`).join("")}</select></div>
       ${sm?"":`<details class="entry-extras"><summary>Receipt and recurring options</summary><div><span class="edit-label">Receipt</span><div id="txReceiptBox">${receiptBoxHTML("_txReceipt","tx")}</div></div>
       <div style="background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:12px">
         <div class="flex-b mb6"><span class="fz12 fw6">&#128257; Make Recurring</span><label class="toggle"><input type="checkbox" id="txRec" onchange="toggleRecUI(this.checked)"><span class="toggle-slider"></span></label></div>
@@ -2493,7 +2523,7 @@ function eSetType(t){
   if(t==="expense"){e.style.cssText="border:1px solid var(--red);background:rgba(239,68,68,.1);color:var(--red)";i.style.cssText="border:1px solid var(--border);background:transparent;color:var(--muted)";}
   else{i.style.cssText="border:1px solid var(--green);background:rgba(34,197,94,.1);color:var(--green)";e.style.cssText="border:1px solid var(--border);background:transparent;color:var(--muted)";}
 }
-function saveTx(id){const t=txns.find(x=>x.id===id);if(!t)return;const a=parseAmount($("eAmt")?.value);if(!a)return alert("Enter amount");if(!validEntry(a,$("eDate").value,window._eAcc))return;const financialChanged=t.amount!==a||t.date!==$("eDate").value||t.accountId!==window._eAcc||t.type!==(window._eType||t.type);if(financialChanged)delete t.statementMatches;t.date=$("eDate").value;t.description=$("eDesc").value;t.amount=a;t.type=window._eType||t.type;t.category=window._eCat;t.subcategory=window._eSub||"";t.accountId=window._eAcc;t.receipt=window._eReceipt||null;t.cleared=!financialChanged&&!!$("eCleared")?.checked;t.tags=(window._eTags||[]).slice();save();showModal("close");render();}
+function saveTx(id){const t=txns.find(x=>x.id===id);if(!t)return;const a=parseAmount($("eAmt")?.value);if(!a)return alert("Enter amount");if(!validEntry(a,$("eDate").value,window._eAcc))return;const financialChanged=t.amount!==a||t.date!==$("eDate").value||t.accountId!==window._eAcc||t.type!==(window._eType||t.type);if(financialChanged)delete t.statementMatches;t.date=$("eDate").value;t.description=$("eDesc").value;t.amount=a;t.type=window._eType||t.type;t.category=window._eCat;t.subcategory=window._eSub||"";t.accountId=window._eAcc;if(t.type==="expense")t.projectId=$("eProject")?.value||"";else delete t.projectId;t.receipt=window._eReceipt||null;t.cleared=!financialChanged&&!!$("eCleared")?.checked;t.tags=(window._eTags||[]).slice();save();showModal("close");render();}
 // Convert between income/expense and transfer while editing, without losing date/amount/description
 function convertToTransfer(id){
   const t=txns.find(x=>x.id===id);if(!t)return;
@@ -2579,7 +2609,7 @@ function addSplitTx(keepOpen){
   const date=$("txDate").value,desc=$("txDesc").value,tags=(window._txTags||[]).slice(),acc=window._txAcc,type=window._txT||"expense";
   if(!date)return alert("Choose a date");
   const groupId=uid();
-  const created=lines.map(s=>({id:uid(),date,description:desc,tags,amount:s.amount,type,category:s.category,subcategory:s.subcategory,accountId:acc,source:"Manual",splitGroupId:groupId,cleared:!!window._txFromBankAlert}));
+  const created=lines.map(s=>({id:uid(),date,description:desc,tags,amount:s.amount,type,category:s.category,subcategory:s.subcategory,accountId:acc,projectId:type==="expense"?$("txProject")?.value||"":"",source:"Manual",splitGroupId:groupId,cleared:!!window._txFromBankAlert}));
   txns.push(...created);
   save();
   created.forEach(t=>checkBudgetAlerts(t));
@@ -2597,7 +2627,7 @@ function addTx(keepOpen){
   if(window._txSplitMode)return addSplitTx(keepOpen);
   const a=parseAmount($("txAmt")?.value);if(!a)return alert("Enter an amount");
   if(!validEntry(a,$("txDate").value,window._txAcc))return;
-  const newTx={id:uid(),date:$("txDate").value,description:$("txDesc").value,tags:(window._txTags||[]).slice(),amount:a,type:window._txT||"expense",category:window._txCat,subcategory:window._txSub||"",accountId:window._txAcc,source:"Manual",receipt:window._txReceipt||null,cleared:!!window._txFromBankAlert};
+  const newTx={id:uid(),date:$("txDate").value,description:$("txDesc").value,tags:(window._txTags||[]).slice(),amount:a,type:window._txT||"expense",category:window._txCat,subcategory:window._txSub||"",accountId:window._txAcc,projectId:(window._txT||"expense")==="expense"?$("txProject")?.value||"":"",source:"Manual",receipt:window._txReceipt||null,cleared:!!window._txFromBankAlert};
   if(!validateBankAlertEntry(newTx))return;
   if(window._bankAlertId){newTx.source="Bank Alert";newTx.bankAlertId=window._bankAlertId;newTx.externalReference=window._bankAlertMeta?.reference||"";newTx.bankAlertPackage=window._bankAlertMeta?.packageName||"";newTx.cleared=false;}
   txns.push(newTx);
