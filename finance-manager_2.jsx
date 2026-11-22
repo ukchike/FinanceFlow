@@ -2,6 +2,8 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, LineChart, Line, CartesianGrid, Legend } from "recharts";
 import * as Papa from "papaparse";
 import * as XLSX from "sheetjs";
+import { BACKUP_FORMAT, BACKUP_VERSION, assertBackupSize, mergeBackupRecords, validateBackup } from "./backup-core.mjs";
+import { summarizeProject } from "./project-core.mjs";
 import { Upload, Plus, TrendingUp, TrendingDown, Wallet, Target, BarChart3, List, Settings, ChevronDown, X, Check, AlertTriangle, Loader2, FileSpreadsheet, Brain, Edit3, Trash2, Search, Filter, ArrowUpRight, ArrowDownRight, RefreshCw, CreditCard, Building2, PiggyBank, DollarSign } from "lucide-react";
 
 const CATEGORIES = {
@@ -240,6 +242,17 @@ export default function FinanceManager() {
   const [transactions, setTransactions] = useState([]);
   const [accounts, setAccounts] = useState(DEFAULT_ACCOUNTS);
   const [budgets, setBudgets] = useState(DEFAULT_BUDGETS);
+  const [projects, setProjects] = useState([]);
+  const [commitments, setCommitments] = useState([]);
+  const [selectedProjectId, setSelectedProjectId] = useState(null);
+  const [projectPeriod, setProjectPeriod] = useState(new Date().toISOString().slice(0, 7));
+  const [projectCategory, setProjectCategory] = useState("all");
+  const [projectAccount, setProjectAccount] = useState("all");
+  const [showProjectForm, setShowProjectForm] = useState(false);
+  const [editingProjectId, setEditingProjectId] = useState(null);
+  const [projectForm, setProjectForm] = useState({ name: "", description: "", startDate: new Date().toISOString().slice(0, 10), expectedEndDate: "", budget: "", fundedAmount: "0", status: "active" });
+  const [commitmentForm, setCommitmentForm] = useState({ description: "", amount: "", dueDate: "" });
+  const [backupMetadata, setBackupMetadata] = useState({ categories: { expense: {}, income: {} }, profile: {} });
   const [showUpload, setShowUpload] = useState(false);
   const [showAddTx, setShowAddTx] = useState(false);
   const [showAddBudget, setShowAddBudget] = useState(false);
@@ -255,19 +268,30 @@ export default function FinanceManager() {
   const [loading, setLoading] = useState(true);
   const [pendingClassification, setPendingClassification] = useState([]);
   const fileRef = useRef(null);
+  const backupInputRef = useRef(null);
+  const [backupMessage, setBackupMessage] = useState(null);
 
   // Persistence
   useEffect(() => {
     (async () => {
       try {
-        const [txRes, accRes, budRes] = await Promise.all([
+        const [txRes, accRes, budRes, metaRes, projectRes, commitmentRes] = await Promise.all([
           window.storage.get("fm_transactions").catch(() => null),
           window.storage.get("fm_accounts").catch(() => null),
-          window.storage.get("fm_budgets").catch(() => null)
+          window.storage.get("fm_budgets").catch(() => null),
+          window.storage.get("fm_backup_metadata").catch(() => null),
+          window.storage.get("fm_projects").catch(() => null),
+          window.storage.get("fm_commitments").catch(() => null)
         ]);
         if (txRes?.value) setTransactions(JSON.parse(txRes.value));
         if (accRes?.value) setAccounts(JSON.parse(accRes.value));
         if (budRes?.value) setBudgets(JSON.parse(budRes.value));
+        if (projectRes?.value) setProjects(JSON.parse(projectRes.value));
+        if (commitmentRes?.value) setCommitments(JSON.parse(commitmentRes.value));
+        if (metaRes?.value) {
+          const metadata = JSON.parse(metaRes.value);
+          if (metadata && typeof metadata === "object" && !Array.isArray(metadata)) setBackupMetadata(metadata);
+        }
       } catch {}
       setLoading(false);
     })();
@@ -286,6 +310,14 @@ export default function FinanceManager() {
   useEffect(() => {
     if (!loading) window.storage.set("fm_budgets", JSON.stringify(budgets)).catch(() => {});
   }, [budgets, loading]);
+
+  useEffect(() => {
+    if (!loading) window.storage.set("fm_projects", JSON.stringify(projects)).catch(() => {});
+  }, [projects, loading]);
+
+  useEffect(() => {
+    if (!loading) window.storage.set("fm_commitments", JSON.stringify(commitments)).catch(() => {});
+  }, [commitments, loading]);
 
   // File handling
   const handleFile = useCallback(async (file) => {
@@ -407,19 +439,28 @@ export default function FinanceManager() {
     return { ...b, spent };
   });
 
+  const selectedProject = projects.find(p => p.id === selectedProjectId) || projects[0] || null;
+  const projectSummary = summarizeProject(selectedProject, transactions, commitments, { period: projectPeriod, category: projectCategory, accountId: projectAccount });
+  const filteredProjectTransactions = projectSummary.transactions;
+  const projectCommitments = selectedProject ? commitments.filter(c => c.projectId === selectedProject.id && c.status === "open") : [];
+  const { cumulativeSpend: projectCumulativeSpend, committed: projectCommitted, budgetRemaining: projectBudgetRemaining,
+    funded: projectFunded, balance: projectBalance, budgetUtilization: projectBudgetUtilization,
+    fundingProgress: projectFundingProgress, periodSpend: projectPeriodSpend } = projectSummary;
+
   const totalBalance = accounts.reduce((s, a) => s + a.balance, 0);
 
   const navItems = [
     { id: "dashboard", icon: BarChart3, label: "Dashboard" },
     { id: "transactions", icon: List, label: "Transactions" },
     { id: "budgets", icon: Target, label: "Budgets" },
+    { id: "projects", icon: Building2, label: "Projects" },
     { id: "accounts", icon: CreditCard, label: "Accounts" },
   ];
 
   // New transaction form
   const [newTx, setNewTx] = useState({
     date: new Date().toISOString().split("T")[0], description: "", amount: "",
-    type: "expense", category: "Other Expense", accountId: accounts[0]?.id || ""
+    type: "expense", category: "Other Expense", accountId: accounts[0]?.id || "", projectId: ""
   });
 
   const handleAddTx = () => {
@@ -431,7 +472,7 @@ export default function FinanceManager() {
     setTransactions(prev => [...prev, tx]);
     setNewTx({
       date: new Date().toISOString().split("T")[0], description: "", amount: "",
-      type: "expense", category: "Other Expense", accountId: accounts[0]?.id || ""
+      type: "expense", category: "Other Expense", accountId: accounts[0]?.id || "", projectId: ""
     });
     setShowAddTx(false);
   };
@@ -443,18 +484,117 @@ export default function FinanceManager() {
     setEditingTx(null);
   };
 
+  const updateTxProject = (id, projectId) => {
+    setTransactions(prev => prev.map(t => t.id === id ? { ...t, projectId: projectId || "" } : t));
+  };
+
+  const saveProject = () => {
+    const name = projectForm.name.trim();
+    const budget = Number(projectForm.budget), fundedAmount = Number(projectForm.fundedAmount || 0);
+    if (!name) return alert("Enter a project name.");
+    if (!Number.isFinite(budget) || budget < 0) return alert("Enter a valid project budget.");
+    if (!Number.isFinite(fundedAmount) || fundedAmount < 0) return alert("Enter a valid funded amount.");
+    if (projectForm.expectedEndDate && projectForm.expectedEndDate < projectForm.startDate) return alert("Expected completion must be on or after the start date.");
+    const fields = { ...projectForm, name, budget, fundedAmount, updatedAt: new Date().toISOString() };
+    if (editingProjectId) setProjects(prev => prev.map(p => p.id === editingProjectId ? { ...p, ...fields } : p));
+    else {
+      const project = { id: generateId(), ...fields, createdAt: new Date().toISOString() };
+      setProjects(prev => [...prev, project]);
+      setSelectedProjectId(project.id);
+    }
+    setShowProjectForm(false); setEditingProjectId(null);
+  };
+
+  const setProjectStatus = (id, status) => setProjects(prev => prev.map(p => p.id === id ? { ...p, status, updatedAt: new Date().toISOString() } : p));
+  const addCommitment = projectId => {
+    const description = commitmentForm.description.trim(), amount = Number(commitmentForm.amount);
+    if (!description) return alert("Enter a commitment description.");
+    if (!Number.isFinite(amount) || amount <= 0) return alert("Enter a commitment amount greater than zero.");
+    setCommitments(prev => [...prev, { id: generateId(), projectId, description, amount, dueDate: commitmentForm.dueDate, status: "open", createdAt: new Date().toISOString() }]);
+    setCommitmentForm({ description: "", amount: "", dueDate: "" });
+  };
+  const updateCommitment = (id, status) => setCommitments(prev => prev.map(c => c.id === id ? { ...c, status } : c));
+
   const [newBudget, setNewBudget] = useState({ category: "Groceries", limit: "" });
 
   const resetAll = async () => {
     if (confirm("This will clear ALL data. Are you sure?")) {
-      setTransactions([]); setAccounts(DEFAULT_ACCOUNTS); setBudgets(DEFAULT_BUDGETS);
+      setTransactions([]); setAccounts(DEFAULT_ACCOUNTS); setBudgets(DEFAULT_BUDGETS); setProjects([]); setCommitments([]);
       try {
         await window.storage.delete("fm_transactions");
         await window.storage.delete("fm_accounts");
         await window.storage.delete("fm_budgets");
+        await window.storage.delete("fm_projects");
+        await window.storage.delete("fm_commitments");
       } catch {}
     }
   };
+
+  const exportBackup = useCallback(() => {
+    try {
+      const blob = new Blob([JSON.stringify({ format: BACKUP_FORMAT, version: BACKUP_VERSION, exportedAt: new Date().toISOString(), transactions, accounts, budgets, projects, commitments, ...backupMetadata }, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `financeflow_backup_${new Date().toISOString().slice(0, 10)}.json`;
+      link.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      setBackupMessage({ success: true, msg: "Backup downloaded." });
+    } catch (err) {
+      setBackupMessage({ success: false, msg: `Could not create backup: ${err.message}` });
+    }
+  }, [transactions, accounts, budgets, projects, commitments, backupMetadata]);
+
+  const restoreBackup = useCallback(async file => {
+    if (!file) return;
+    try {
+      assertBackupSize(file.size);
+      const backup = validateBackup(JSON.parse(await file.text()));
+      const [existingTx, existingAcc, existingBud, existingMeta, existingProjects, existingCommitments] = await Promise.all([
+        window.storage.get("fm_transactions").catch(() => null),
+        window.storage.get("fm_accounts").catch(() => null),
+        window.storage.get("fm_budgets").catch(() => null),
+        window.storage.get("fm_backup_metadata").catch(() => null),
+        window.storage.get("fm_projects").catch(() => null),
+        window.storage.get("fm_commitments").catch(() => null)
+      ]);
+      const next = {
+        transactions: backup.transactions ? mergeBackupRecords(transactions, backup.transactions) : transactions,
+        accounts: backup.accounts ? mergeBackupRecords(accounts, backup.accounts) : accounts,
+        budgets: backup.budgets ? mergeBackupRecords(budgets, backup.budgets) : budgets,
+        projects: backup.projects ? mergeBackupRecords(projects, backup.projects) : projects,
+        commitments: backup.commitments ? mergeBackupRecords(commitments, backup.commitments) : commitments,
+        metadata: {
+          categories: Object.fromEntries(["expense", "income"].map(kind => [kind, { ...(backupMetadata.categories?.[kind] || {}), ...(backup.categories?.[kind] || {}) }])),
+          profile: { ...(backupMetadata.profile || {}), ...(backup.profile || {}) }
+        }
+      };
+      // Write the complete restored snapshot before updating React state. Roll back any partial writes on failure.
+      const keys = ["fm_transactions", "fm_accounts", "fm_budgets", "fm_backup_metadata", "fm_projects", "fm_commitments"];
+      const previous = [existingTx?.value, existingAcc?.value, existingBud?.value, existingMeta?.value, existingProjects?.value, existingCommitments?.value];
+      const serialized = [JSON.stringify(next.transactions), JSON.stringify(next.accounts), JSON.stringify(next.budgets), JSON.stringify(next.metadata), JSON.stringify(next.projects), JSON.stringify(next.commitments)];
+      let written = 0;
+      try {
+        for (; written < keys.length; written++) await window.storage.set(keys[written], serialized[written]);
+      } catch (err) {
+        await Promise.all(keys.slice(0, written + 1).map((key, index) => previous[index] == null
+          ? window.storage.delete(key).catch(() => {})
+          : window.storage.set(key, previous[index]).catch(() => {})));
+        throw new Error(`Could not save restored data: ${err.message}`);
+      }
+      setTransactions(next.transactions);
+      setAccounts(next.accounts);
+      setBudgets(next.budgets);
+      setProjects(next.projects);
+      setCommitments(next.commitments);
+      setBackupMetadata(next.metadata);
+      setBackupMessage({ success: true, msg: "Backup restored. Existing records were kept and missing backup records were added." });
+    } catch (err) {
+      setBackupMessage({ success: false, msg: `Restore failed: ${err.message}` });
+    } finally {
+      if (backupInputRef.current) backupInputRef.current.value = "";
+    }
+  }, [transactions, accounts, budgets, projects, commitments, backupMetadata]);
 
   if (loading) {
     return (
@@ -543,6 +683,13 @@ export default function FinanceManager() {
           </div>
         </div>
         <div style={{ display: "flex", gap: 8 }}>
+          <button className="btn btn-ghost" onClick={() => { setBackupMessage(null); backupInputRef.current?.click(); }} style={{ fontSize: 13 }}>
+            Restore Backup
+          </button>
+          <button className="btn btn-ghost" onClick={exportBackup} style={{ fontSize: 13 }}>
+            Backup
+          </button>
+          <input ref={backupInputRef} type="file" accept=".json,application/json" hidden onChange={e => restoreBackup(e.target.files?.[0])} />
           <button className="btn btn-ghost" onClick={() => setShowUpload(true)} style={{ fontSize: 13 }}>
             <Upload size={16} /> Upload Statement
           </button>
@@ -551,6 +698,11 @@ export default function FinanceManager() {
           </button>
         </div>
       </header>
+      {backupMessage && (
+        <div role="status" style={{ padding: "10px 24px", color: backupMessage.success ? "#22c55e" : "#ef4444", background: "var(--card-bg)", borderBottom: "1px solid var(--border)", fontSize: 13 }}>
+          {backupMessage.msg}
+        </div>
+      )}
 
       <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
         {/* Sidebar */}
@@ -748,9 +900,13 @@ export default function FinanceManager() {
                         {t.description}
                       </div>
                       <div style={{ fontSize: 11, color: "var(--text-muted)" }}>
-                        {t.date} · {t.source}
+                        {t.date} · {t.source}{t.projectId && ` · ${projects.find(p => p.id === t.projectId)?.name || "Project"}`}
                         {!t.classified && <span style={{ color: "#f59e0b", marginLeft: 6 }}>⚡ Rule-based</span>}
                       </div>
+                      <select aria-label={`Project for ${t.description || "transaction"}`} value={t.projectId || ""} onChange={e => updateTxProject(t.id, e.target.value)} style={{ marginTop: 5, fontSize: 11 }}>
+                        <option value="">Personal / unassigned</option>
+                        {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                      </select>
                     </div>
                     {editingTx === t.id ? (
                       <select value={t.category} onChange={e => updateTxCategory(t.id, e.target.value)}
@@ -791,6 +947,29 @@ export default function FinanceManager() {
                   </div>
                 )}
               </div>
+            </div>
+          )}
+
+          {/* PROJECTS */}
+          {view === "projects" && (
+            <div className="fade-in">
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, marginBottom: 20 }}>
+                <div><h2 style={{ fontSize: 18, fontWeight: 700 }}>Projects</h2><div style={{ color: "var(--text-muted)", fontSize: 12 }}>Track budgets, commitments and linked expenses.</div></div>
+                <button className="btn btn-primary" onClick={() => { setEditingProjectId(null); setProjectForm({ name: "", description: "", startDate: new Date().toISOString().slice(0, 10), expectedEndDate: "", budget: "", fundedAmount: "0", status: "active" }); setShowProjectForm(true); }}><Plus size={16} /> New Project</button>
+              </div>
+              {showProjectForm && <div style={{ background: "var(--card-bg)", border: "1px solid var(--border)", borderRadius: 16, padding: 20, marginBottom: 18 }}><h3 style={{ fontSize: 15, marginBottom: 12 }}>{editingProjectId ? "Edit Project" : "Create Project"}</h3><div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(180px,1fr))", gap: 10 }}><input placeholder="Project name" value={projectForm.name} onChange={e => setProjectForm(p => ({ ...p, name: e.target.value }))} /><input placeholder="Description" value={projectForm.description} onChange={e => setProjectForm(p => ({ ...p, description: e.target.value }))} /><label>Start date<input type="date" value={projectForm.startDate} onChange={e => setProjectForm(p => ({ ...p, startDate: e.target.value }))} /></label><label>Expected completion<input type="date" value={projectForm.expectedEndDate} onChange={e => setProjectForm(p => ({ ...p, expectedEndDate: e.target.value }))} /></label><label>Project budget (₦)<input type="number" min="0" value={projectForm.budget} onChange={e => setProjectForm(p => ({ ...p, budget: e.target.value }))} /></label><label>Initial funded amount (₦)<input type="number" min="0" value={projectForm.fundedAmount} onChange={e => setProjectForm(p => ({ ...p, fundedAmount: e.target.value }))} /></label><label>Status<select value={projectForm.status} onChange={e => setProjectForm(p => ({ ...p, status: e.target.value }))}>{["active", "paused", "completed", "cancelled"].map(s => <option key={s} value={s}>{s[0].toUpperCase() + s.slice(1)}</option>)}</select></label></div><div style={{ display: "flex", gap: 8, marginTop: 12 }}><button className="btn btn-primary" onClick={saveProject}>Save Project</button><button className="btn btn-ghost" onClick={() => { setShowProjectForm(false); setEditingProjectId(null); }}>Cancel</button></div></div>}
+              {projects.length === 0 ? <div style={{ padding: 24, textAlign: "center", color: "var(--text-muted)", border: "1px solid var(--border)", borderRadius: 16 }}>No projects yet. Create a project to track related expenses.</div> : <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(220px,1fr))", gap: 12, marginBottom: 18 }}>{projects.map(p => { const spent = transactions.filter(t => t.projectId === p.id && t.type === "expense").reduce((s, t) => s + Number(t.amount || 0), 0); const committed = commitments.filter(c => c.projectId === p.id && c.status === "open").reduce((s, c) => s + Number(c.amount || 0), 0); const pct = Number(p.budget) > 0 ? Math.min((spent + committed) / Number(p.budget) * 100, 100) : 0; return <button key={p.id} onClick={() => setSelectedProjectId(p.id)} style={{ textAlign: "left", padding: 16, borderRadius: 14, background: "var(--card-bg)", color: "var(--text-primary)", border: selectedProject?.id === p.id ? "1px solid #3b82f6" : "1px solid var(--border)", cursor: "pointer" }}><div style={{ display: "flex", justifyContent: "space-between", gap: 8, fontWeight: 700 }}><span>{p.name}</span><span style={{ fontSize: 11, color: p.status === "active" ? "#22c55e" : "var(--text-muted)" }}>{p.status}</span></div><div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 6 }}>Spent {formatCurrency(spent)} · committed {formatCurrency(committed)}</div><div style={{ height: 6, background: "var(--border)", borderRadius: 4, marginTop: 10 }}><div style={{ width: `${pct}%`, height: "100%", background: pct >= 100 ? "#ef4444" : "#3b82f6", borderRadius: 4 }} /></div></button>; })}</div>}
+              {selectedProject && <div style={{ background: "var(--card-bg)", border: "1px solid var(--border)", borderRadius: 16, padding: 20 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}><div><h3 style={{ fontSize: 17 }}>{selectedProject.name}</h3><div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 4 }}>{selectedProject.description || "No description"} · Starts {selectedProject.startDate}{selectedProject.expectedEndDate ? ` · Expected ${selectedProject.expectedEndDate}` : ""}</div></div><button className="btn btn-ghost" onClick={() => { setEditingProjectId(selectedProject.id); setProjectForm({ name: selectedProject.name, description: selectedProject.description || "", startDate: selectedProject.startDate || "", expectedEndDate: selectedProject.expectedEndDate || "", budget: String(selectedProject.budget), fundedAmount: String(selectedProject.fundedAmount || 0), status: selectedProject.status }); setShowProjectForm(true); }}>Edit</button></div>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: 10, marginTop: 18 }}>{[["Selected period expenses", projectPeriodSpend], ["Cumulative expenses", projectCumulativeSpend], ["Total funding", projectFunded], ["Project balance", projectBalance], ["Outstanding commitments", projectCommitted], ["Budget remaining", projectBudgetRemaining]].map(([label, value]) => <div key={label} style={{ padding: 14, borderRadius: 12, border: "1px solid var(--border)" }}><div style={{ color: "var(--text-muted)", fontSize: 11 }}>{label}</div><div style={{ fontSize: 16, fontWeight: 700, marginTop: 6, color: (label === "Budget remaining" || label === "Project balance") && value < 0 ? "#ef4444" : "var(--text-primary)" }}>{formatCurrency(value)}</div></div>)}</div>
+                <div style={{ marginTop: 14 }}><div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "var(--text-muted)" }}><span>Funding progress</span><span>{projectFundingProgress.toFixed(0)}% of budget</span></div><div style={{ height: 7, background: "var(--border)", borderRadius: 4, marginTop: 5 }}><div style={{ width: `${projectFundingProgress}%`, height: "100%", background: "#22c55e", borderRadius: 4 }} /></div></div>
+                <div style={{ marginTop: 14 }}><div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "var(--text-muted)" }}><span>Budget utilisation (expenses + commitments)</span><span>{projectBudgetUtilization.toFixed(0)}%</span></div><div style={{ height: 7, background: "var(--border)", borderRadius: 4, marginTop: 5 }}><div style={{ width: `${projectBudgetUtilization}%`, height: "100%", background: projectBudgetUtilization >= 100 ? "#ef4444" : "#3b82f6", borderRadius: 4 }} /></div></div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 16 }}><input aria-label="Project report month" type="month" value={projectPeriod === "all" ? "" : projectPeriod} onChange={e => setProjectPeriod(e.target.value || "all")} /><button className="btn btn-ghost" onClick={() => setProjectPeriod("all")}>All time</button><select value={projectCategory} onChange={e => setProjectCategory(e.target.value)}><option value="all">All categories</option>{CATEGORIES.expense.map(c => <option key={c} value={c}>{c}</option>)}</select><select value={projectAccount} onChange={e => setProjectAccount(e.target.value)}><option value="all">All accounts</option>{accounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}</select><select value={selectedProject.status} onChange={e => setProjectStatus(selectedProject.id, e.target.value)}>{["active", "paused", "completed", "cancelled"].map(s => <option key={s} value={s}>{s[0].toUpperCase() + s.slice(1)}</option>)}</select></div>
+                <h4 style={{ marginTop: 18, marginBottom: 8, fontSize: 13 }}>Project expenses ({filteredProjectTransactions.length})</h4>{filteredProjectTransactions.length ? filteredProjectTransactions.map(t => <div key={t.id} style={{ display: "flex", justifyContent: "space-between", padding: "10px 0", borderBottom: "1px solid var(--border)", fontSize: 12 }}><span>{t.date} · {t.description} · {t.category} · {accounts.find(a => a.id === t.accountId)?.name || ""}</span><strong>{formatCurrency(t.amount)}</strong></div>) : <div style={{ color: "var(--text-muted)", fontSize: 12 }}>No project expenses match these filters.</div>}
+                <div style={{ marginTop: 18, paddingTop: 16, borderTop: "1px solid var(--border)" }}><h4 style={{ fontSize: 13, marginBottom: 8 }}>Outstanding commitments</h4>{projectCommitments.length ? projectCommitments.map(c => <div key={c.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: "1px solid var(--border)", fontSize: 12 }}><span>{c.description}{c.dueDate ? ` · Due ${c.dueDate}` : ""}</span><span>{formatCurrency(c.amount)} <button className="btn btn-ghost" onClick={() => updateCommitment(c.id, "paid")}>Paid</button><button className="btn btn-ghost" onClick={() => updateCommitment(c.id, "cancelled")}>Cancel</button></span></div>) : <div style={{ color: "var(--text-muted)", fontSize: 12 }}>No outstanding commitments.</div>}
+                  <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr auto", gap: 8, marginTop: 10 }}><input placeholder="Commitment description" value={commitmentForm.description} onChange={e => setCommitmentForm(p => ({ ...p, description: e.target.value }))} /><input type="number" min="0.01" placeholder="Amount" value={commitmentForm.amount} onChange={e => setCommitmentForm(p => ({ ...p, amount: e.target.value }))} /><input type="date" aria-label="Commitment due date" value={commitmentForm.dueDate} onChange={e => setCommitmentForm(p => ({ ...p, dueDate: e.target.value }))} /><button className="btn btn-primary" onClick={() => addCommitment(selectedProject.id)}>Add</button></div><div style={{ color: "var(--text-muted)", fontSize: 11, marginTop: 6 }}>Record the actual expense separately as a transaction linked to this project.</div>
+                </div>
+              </div>}
             </div>
           )}
 
@@ -1030,6 +1209,10 @@ export default function FinanceManager() {
               <select value={newTx.accountId}
                 onChange={e => setNewTx(p => ({ ...p, accountId: e.target.value }))}>
                 {accounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+              </select>
+              <select value={newTx.projectId} onChange={e => setNewTx(p => ({ ...p, projectId: e.target.value }))}>
+                <option value="">Personal / unassigned</option>
+                {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
               </select>
             </div>
 
