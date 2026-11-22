@@ -13,6 +13,15 @@ test("validates current React-format backups and legacy Android backups", () => 
   assert.deepEqual(legacy.categories.expense.Food, ["Groceries"]);
 });
 
+test("accepts v3 and v4 Android backups with transfer transactions", () => {
+  for (const version of [3, 4]) {
+    const result = validateBackup({ version, txns: [{ id: "transfer-1", type: "transfer", amount: 100, fromAccountId: "cash", toAccountId: "bank" }] });
+    assert.equal(result.transactions[0].type, "transfer");
+  }
+  assert.equal(BACKUP_VERSION, 4);
+  assert.throws(() => validateBackup({ version: 5, txns: [] }), /Unsupported backup version/);
+});
+
 test("exports a versioned backup that round-trips through the legacy Android field names", () => {
   const exported = JSON.stringify({ format: BACKUP_FORMAT, version: BACKUP_VERSION, transactions: [{ id: "t1", amount: 8 }], accounts: [{ id: "a1", name: "Cash" }], budgets: [{ id: "b1", limit: 30 }], categories: { expense: { Food: ["Meals"] }, income: {} }, profile: { name: "Sam" } });
   const restored = validateBackup(JSON.parse(exported));
