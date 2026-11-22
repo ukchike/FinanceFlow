@@ -47,10 +47,14 @@ public class MainActivity extends Activity {
                 filePathCallback = callback;
                 Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
                 intent.addCategory(Intent.CATEGORY_OPENABLE);
-                // Some document providers report .json files as application/octet-stream.
-                // Keep the MIME hints while allowing those legacy files to be selected.
+                // Do not restrict MIME types here. Samsung's document provider can
+                // classify transferred .json backups as application/octet-stream or
+                // application/x-download and hide them when MIME hints are supplied.
+                // The web app validates the selected file's JSON and FinanceFlow schema
+                // before it writes anything to local storage.
                 intent.setType("*/*");
-                intent.putExtra(Intent.EXTRA_MIME_TYPES, new String[]{"application/json", "text/json", "text/plain", "application/octet-stream"});
+                intent.putExtra(Intent.EXTRA_LOCAL_ONLY, true);
+                intent.addCategory(Intent.CATEGORY_DEFAULT);
                 intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
                 try {
                     startActivityForResult(intent, FILE_CHOOSER_REQUEST);
