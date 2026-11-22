@@ -180,7 +180,7 @@ const CAT_COLORS = {
 const MO=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 
 // ── STATE ──
-let txns=[], budgets=[], accounts=[], projects=[], commitments=[], userEC={}, userIC={}, profile={name:""};
+let txns=[], budgets=[], accounts=[], projects=[], commitments=[], userEC={}, userIC={}, profile={name:""}, backupExtras={};
 let V="dashboard",search="",fCat="all",fType="all",fAcc="all",showTf=false,pendingTx=[],_sp={},exCats={};
 let statsType="expense",pMode="month",pDate=new Date(),ppOpen=false;
 let cmpMode=false,pModeB="month",pDateB=new Date(new Date().getFullYear(),new Date().getMonth()-1,1),ppBOpen=false;
@@ -212,6 +212,7 @@ function save(){
   localStorage.setItem("ffd_ec",JSON.stringify(userEC));
   localStorage.setItem("ffd_ic",JSON.stringify(userIC));
   localStorage.setItem("ffd_pro",JSON.stringify(profile));
+  localStorage.setItem("ffd_backupExtras",JSON.stringify(backupExtras));
 }
 function load(){
   try{const t=localStorage.getItem("ffd_tx");if(t)txns=JSON.parse(t);}catch(e){}
@@ -222,6 +223,7 @@ function load(){
   try{const ec=localStorage.getItem("ffd_ec");if(ec)userEC=JSON.parse(ec);}catch(e){}
   try{const ic=localStorage.getItem("ffd_ic");if(ic)userIC=JSON.parse(ic);}catch(e){}
   try{const p=localStorage.getItem("ffd_pro");if(p)profile=JSON.parse(p);}catch(e){}
+  try{const x=localStorage.getItem("ffd_backupExtras");if(x)backupExtras=JSON.parse(x);}catch(e){}
   // Seed default cash account if none exist
   if(!accounts.length) accounts=[{id:"cash",name:"Cash",type:"cash",color:"#22c55e"}];
 }
@@ -463,8 +465,22 @@ function addSub(cat){const inp=$(`nsi_${cat}`);if(!inp)return;const s=inp.value.
 function rmSub(cat,sub){const ec=getEC(),ic=getIC();if(ec[cat]!==undefined){if(!userEC[cat])userEC[cat]=[...(DEF_EC[cat]||[])];userEC[cat]=userEC[cat].filter(s=>s!==sub);}else if(ic[cat]!==undefined){if(!userIC[cat])userIC[cat]=[...(DEF_IC[cat]||[])];userIC[cat]=userIC[cat].filter(s=>s!==sub);}save();render();}
 
 // ── ACTIONS ──
-function resetAll(){if(confirm("Clear ALL data and start fresh?")){["ffd_tx","ffd_bd","ffd_acc","ffd_ec","ffd_ic","ffd_pro","ffd_projects","ffd_commitments"].forEach(k=>localStorage.removeItem(k));txns=[];budgets=[];accounts=[{id:"cash",name:"Cash",type:"cash",color:"#22c55e"}];projects=[];commitments=[];userEC={};userIC={};profile={name:""};save();closeSettings();}}
-function exportData(){try{const blob=new Blob([JSON.stringify({format:FinanceFlowBackup.BACKUP_FORMAT,version:FinanceFlowBackup.BACKUP_VERSION,exportedAt:new Date().toISOString(),txns,budgets,accounts,projects,commitments,userEC,userIC,profile},null,2)],{type:"application/json"});const url=URL.createObjectURL(blob);const a=document.createElement("a");a.href=url;a.download="financeflow_"+new Date().toISOString().split("T")[0]+".json";a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}catch(e){alert("Backup could not be created: "+e.message);}}
+function resetAll(){if(confirm("Clear ALL data and start fresh?")){["ffd_tx","ffd_bd","ffd_acc","ffd_ec","ffd_ic","ffd_pro","ffd_projects","ffd_commitments"].forEach(k=>localStorage.removeItem(k));txns=[];budgets=[];accounts=[{id:"cash",name:"Cash",type:"cash",color:"#22c55e"}];projects=[];commitments=[];userEC={};userIC={};profile={name:""};backupExtras={};localStorage.removeItem("ffd_backupExtras");save();closeSettings();}}
+function exportData(){try{const blob=new Blob([JSON.stringify({...backupExtras,format:FinanceFlowBackup.BACKUP_FORMAT,version:FinanceFlowBackup.BACKUP_VERSION,exportedAt:new Date().toISOString(),txns,budgets,accounts,projects,commitments,userEC,userIC,profile},null,2)],{type:"application/json"});const url=URL.createObjectURL(blob);const a=document.createElement("a");a.href=url;a.download="financeflow_"+new Date().toISOString().split("T")[0]+".json";a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}catch(e){alert("Backup could not be created: "+e.message);}}
+function mergeBackupExtras(current,incoming){
+  const merged={...current};
+  Object.entries(incoming).forEach(([key,value])=>{
+    if(Array.isArray(value)){
+      const existing=Array.isArray(merged[key])?[...merged[key]]:[];
+      const seen=new Set(existing.map(item=>item&&item.id!=null?"id:"+item.id:"json:"+JSON.stringify(item)));
+      value.forEach(item=>{const token=item&&item.id!=null?"id:"+item.id:"json:"+JSON.stringify(item);if(!seen.has(token)){seen.add(token);existing.push(item);}});
+      merged[key]=existing;
+    }else if(value&&typeof value==="object"&&!Array.isArray(value)){
+      merged[key]={...(merged[key]&&typeof merged[key]==="object"?merged[key]:{}),...value};
+    }else merged[key]=value;
+  });
+  return merged;
+}
 let pendingRestoreBackup = null;
 async function importData(file){
   if(!file)return;
@@ -500,7 +516,10 @@ function applyRestore(mode){
   if(!pendingRestoreBackup)return;
   const d=pendingRestoreBackup;
   const merge=mode==="merge";
+  const coreFields=new Set(["format","version","exportedAt","transactions","txns","budgets","accounts","projects","commitments","categories","userEC","userIC","profile"]);
+  const incomingExtras=Object.fromEntries(Object.entries(d).filter(([key])=>!coreFields.has(key)));
   const next={
+    backupExtras:merge?mergeBackupExtras(backupExtras,incomingExtras):incomingExtras,
     txns:d.transactions?(merge?FinanceFlowBackup.mergeBackupRecords(txns,d.transactions):[...d.transactions]):txns,
     budgets:d.budgets?(merge?FinanceFlowBackup.mergeBackupRecords(budgets,d.budgets):[...d.budgets]):budgets,
     accounts:d.accounts?(merge?FinanceFlowBackup.mergeBackupRecords(accounts,d.accounts):[...d.accounts]):accounts,
@@ -510,14 +529,14 @@ function applyRestore(mode){
     userIC:d.categories?.income?(merge?{...userIC,...d.categories.income}:{...d.categories.income}):userIC,
     profile:d.profile?(merge?{...profile,...d.profile}:{...d.profile}):profile
   };
-  const snapshot={txns,budgets,accounts,projects,commitments,userEC,userIC,profile};
-  const keys=["ffd_tx","ffd_bd","ffd_acc","ffd_projects","ffd_commitments","ffd_ec","ffd_ic","ffd_pro"];
+  const snapshot={txns,budgets,accounts,projects,commitments,userEC,userIC,profile,backupExtras};
+  const keys=["ffd_tx","ffd_bd","ffd_acc","ffd_projects","ffd_commitments","ffd_ec","ffd_ic","ffd_pro","ffd_backupExtras"];
   const oldValues=keys.map(k=>localStorage.getItem(k));
   try{
-    txns=next.txns;budgets=next.budgets;accounts=next.accounts;projects=next.projects;commitments=next.commitments;userEC=next.userEC;userIC=next.userIC;profile=next.profile;
+    txns=next.txns;budgets=next.budgets;accounts=next.accounts;projects=next.projects;commitments=next.commitments;userEC=next.userEC;userIC=next.userIC;profile=next.profile;backupExtras=next.backupExtras;
     save();
   }catch(e){
-    txns=snapshot.txns;budgets=snapshot.budgets;accounts=snapshot.accounts;projects=snapshot.projects;commitments=snapshot.commitments;userEC=snapshot.userEC;userIC=snapshot.userIC;profile=snapshot.profile;
+    txns=snapshot.txns;budgets=snapshot.budgets;accounts=snapshot.accounts;projects=snapshot.projects;commitments=snapshot.commitments;userEC=snapshot.userEC;userIC=snapshot.userIC;profile=snapshot.profile;backupExtras=snapshot.backupExtras;
     keys.forEach((k,i)=>{try{if(oldValues[i]===null)localStorage.removeItem(k);else localStorage.setItem(k,oldValues[i]);}catch{}});
     alert("Restored data could not be saved: "+e.message);
     return;
