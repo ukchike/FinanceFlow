@@ -23,12 +23,15 @@ jobs:
           java-version: '17'
           distribution: temurin
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
-
       - name: Build signed release APK
         working-directory: financeflow-android
+        env:
+          ANDROID_HOME: ${{ runner.temp }}/android-sdk
         run: |
+          echo "sdk.dir=$ANDROID_HOME" > local.properties
+          mkdir -p "$ANDROID_HOME"
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null 2>&1 || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platform-tools" "platforms;android-34" "build-tools;34.0.0"
           chmod +x ./gradlew
           ./gradlew --no-daemon clean assembleRelease
           test -s app/build/outputs/apk/release/app-release.apk
