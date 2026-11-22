@@ -1,5 +1,5 @@
 const BACKUP_FORMAT = "financeflow-backup";
-const BACKUP_VERSION = 1;
+const BACKUP_VERSION = 4;
 const MAX_BACKUP_BYTES = 25 * 1024 * 1024;
 
 const isObject = value => value !== null && typeof value === "object" && !Array.isArray(value);
@@ -42,7 +42,7 @@ function validateBackup(data) {
     if (!rows) continue;
     if (rows.some(row => {
       if (!isObject(row) || (row.id != null && !["string", "number"].includes(typeof row.id))) return true;
-      if (field === "transactions") return row.amount == null || !Number.isFinite(Number(row.amount)) || Number(row.amount) < 0 || (row.type != null && !["income", "expense"].includes(row.type));
+      if (field === "transactions") return row.amount == null || !Number.isFinite(Number(row.amount)) || Number(row.amount) < 0 || (row.type != null && !["income", "expense", "transfer"].includes(row.type));
       if (field === "accounts") return typeof row.name !== "string" || !row.name.trim();
       if (field === "budgets") return row.limit == null || !Number.isFinite(Number(row.limit)) || Number(row.limit) < 0;
       if (field === "projects") return row.id == null || typeof row.name !== "string" || !row.name.trim() || !["active", "paused", "completed", "cancelled"].includes(row.status) || row.budget == null || !Number.isFinite(Number(row.budget)) || Number(row.budget) < 0 || (row.fundedAmount != null && (!Number.isFinite(Number(row.fundedAmount)) || Number(row.fundedAmount) < 0));
