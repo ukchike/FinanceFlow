@@ -465,7 +465,69 @@ function rmSub(cat,sub){const ec=getEC(),ic=getIC();if(ec[cat]!==undefined){if(!
 // ── ACTIONS ──
 function resetAll(){if(confirm("Clear ALL data and start fresh?")){["ffd_tx","ffd_bd","ffd_acc","ffd_ec","ffd_ic","ffd_pro","ffd_projects","ffd_commitments"].forEach(k=>localStorage.removeItem(k));txns=[];budgets=[];accounts=[{id:"cash",name:"Cash",type:"cash",color:"#22c55e"}];projects=[];commitments=[];userEC={};userIC={};profile={name:""};save();closeSettings();}}
 function exportData(){try{const blob=new Blob([JSON.stringify({format:FinanceFlowBackup.BACKUP_FORMAT,version:FinanceFlowBackup.BACKUP_VERSION,exportedAt:new Date().toISOString(),txns,budgets,accounts,projects,commitments,userEC,userIC,profile},null,2)],{type:"application/json"});const url=URL.createObjectURL(blob);const a=document.createElement("a");a.href=url;a.download="financeflow_"+new Date().toISOString().split("T")[0]+".json";a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}catch(e){alert("Backup could not be created: "+e.message);}}
-async function importData(file){if(!file)return;try{FinanceFlowBackup.assertBackupSize(file.size);const d=FinanceFlowBackup.validateBackup(JSON.parse(await file.text()));const next={txns:d.transactions?FinanceFlowBackup.mergeBackupRecords(txns,d.transactions):txns,budgets:d.budgets?FinanceFlowBackup.mergeBackupRecords(budgets,d.budgets):budgets,accounts:d.accounts?FinanceFlowBackup.mergeBackupRecords(accounts,d.accounts):accounts,projects:d.projects?FinanceFlowBackup.mergeBackupRecords(projects,d.projects):projects,commitments:d.commitments?FinanceFlowBackup.mergeBackupRecords(commitments,d.commitments):commitments,userEC:d.categories?.expense||d.userEC?{...userEC,...(d.categories?.expense||d.userEC)}:userEC,userIC:d.categories?.income||d.userIC?{...userIC,...(d.categories?.income||d.userIC)}:userIC,profile:d.profile?{...profile,...d.profile}:profile};const snapshot={txns,budgets,accounts,projects,commitments,userEC,userIC,profile};const keys=["ffd_tx","ffd_bd","ffd_acc","ffd_projects","ffd_commitments","ffd_ec","ffd_ic","ffd_pro"],oldValues=keys.map(k=>localStorage.getItem(k));try{txns=next.txns;budgets=next.budgets;accounts=next.accounts;projects=next.projects;commitments=next.commitments;userEC=next.userEC;userIC=next.userIC;profile=next.profile;save();}catch(e){txns=snapshot.txns;budgets=snapshot.budgets;accounts=snapshot.accounts;projects=snapshot.projects;commitments=snapshot.commitments;userEC=snapshot.userEC;userIC=snapshot.userIC;profile=snapshot.profile;keys.forEach((k,i)=>{try{if(oldValues[i]===null)localStorage.removeItem(k);else localStorage.setItem(k,oldValues[i]);}catch{}});throw new Error("Restored data could not be saved: "+e.message);}render();alert("Backup restored. Existing records were kept and missing backup records were added.");}catch(e){alert("Restore failed: "+e.message);}finally{fileInputClear();}}
+let pendingRestoreBackup = null;
+async function importData(file){
+  if(!file)return;
+  try{
+    FinanceFlowBackup.assertBackupSize(file.size);
+    const parsed=JSON.parse(await file.text());
+    const backup=FinanceFlowBackup.validateBackup(parsed);
+    pendingRestoreBackup=backup;
+    const txCount=(backup.transactions||[]).length;
+    const accountCount=(backup.accounts||[]).length;
+    const budgetCount=(backup.budgets||[]).length;
+    const projectCount=(backup.projects||[]).length;
+    const commitmentCount=(backup.commitments||[]).length;
+    const mc=$("modal-container");
+    mc.innerHTML=`<div class="modal-bg" onclick="cancelRestore()"><div class="modal" onclick="event.stopPropagation()">
+      <div class="modal-handle"></div>
+      <div class="flex-b mb12"><span class="fz14 fw7">Restore backup</span><button class="btn" style="padding:2px;color:var(--muted)" onclick="cancelRestore()">&#10005;</button></div>
+      <div class="fz12 mb8">Choose how FinanceFlow should handle the data already on this device.</div>
+      <div class="card" style="padding:10px;margin:10px 0">
+        <div class="fz11 fw7 mb6">Backup contents</div>
+        <div class="fz10 muted">${txCount} transactions · ${accountCount} accounts · ${budgetCount} budgets · ${projectCount} projects · ${commitmentCount} commitments</div>
+      </div>
+      <button class="btn btn-p w100 mb8" style="justify-content:center;padding:11px" onclick="applyRestore('merge')">Merge with existing data</button>
+      <div class="fz10 muted mb12">Keep current records and add records from this backup. Existing IDs are not duplicated.</div>
+      <button class="btn btn-rd w100 mb8" style="justify-content:center;padding:11px" onclick="applyRestore('replace')">Replace existing data</button>
+      <div class="fz10 muted mb12">Replace the data sections contained in this backup. This cannot be undone unless you have another backup.</div>
+      <button class="btn btn-g w100" style="justify-content:center" onclick="cancelRestore()">Cancel</button>
+    </div></div>`;
+  }catch(e){alert("Restore failed: "+e.message);fileInputClear();}
+}
+function cancelRestore(){pendingRestoreBackup=null;showModal("close");fileInputClear();}
+function applyRestore(mode){
+  if(!pendingRestoreBackup)return;
+  const d=pendingRestoreBackup;
+  const merge=mode==="merge";
+  const next={
+    txns:d.transactions?(merge?FinanceFlowBackup.mergeBackupRecords(txns,d.transactions):[...d.transactions]):txns,
+    budgets:d.budgets?(merge?FinanceFlowBackup.mergeBackupRecords(budgets,d.budgets):[...d.budgets]):budgets,
+    accounts:d.accounts?(merge?FinanceFlowBackup.mergeBackupRecords(accounts,d.accounts):[...d.accounts]):accounts,
+    projects:d.projects?(merge?FinanceFlowBackup.mergeBackupRecords(projects,d.projects):[...d.projects]):projects,
+    commitments:d.commitments?(merge?FinanceFlowBackup.mergeBackupRecords(commitments,d.commitments):[...d.commitments]):commitments,
+    userEC:d.categories?.expense?(merge?{...userEC,...d.categories.expense}:{...d.categories.expense}):userEC,
+    userIC:d.categories?.income?(merge?{...userIC,...d.categories.income}:{...d.categories.income}):userIC,
+    profile:d.profile?(merge?{...profile,...d.profile}:{...d.profile}):profile
+  };
+  const snapshot={txns,budgets,accounts,projects,commitments,userEC,userIC,profile};
+  const keys=["ffd_tx","ffd_bd","ffd_acc","ffd_projects","ffd_commitments","ffd_ec","ffd_ic","ffd_pro"];
+  const oldValues=keys.map(k=>localStorage.getItem(k));
+  try{
+    txns=next.txns;budgets=next.budgets;accounts=next.accounts;projects=next.projects;commitments=next.commitments;userEC=next.userEC;userIC=next.userIC;profile=next.profile;
+    save();
+  }catch(e){
+    txns=snapshot.txns;budgets=snapshot.budgets;accounts=snapshot.accounts;projects=snapshot.projects;commitments=snapshot.commitments;userEC=snapshot.userEC;userIC=snapshot.userIC;profile=snapshot.profile;
+    keys.forEach((k,i)=>{try{if(oldValues[i]===null)localStorage.removeItem(k);else localStorage.setItem(k,oldValues[i]);}catch{}});
+    alert("Restored data could not be saved: "+e.message);
+    return;
+  }
+  pendingRestoreBackup=null;
+  showModal("close");
+  render();
+  alert(merge?"Backup merged successfully. Existing records were kept and missing records were added.":"Backup restored successfully. The selected backup data replaced the existing data.");
+  fileInputClear();
+}
 function fileInputClear(){["impFile","impFile2"].forEach(id=>{const input=$(id);if(input)input.value="";});}
 function deleteTx(id){if(confirm("Delete this transaction?")){txns=txns.filter(t=>t.id!==id);save();render();}}
 
