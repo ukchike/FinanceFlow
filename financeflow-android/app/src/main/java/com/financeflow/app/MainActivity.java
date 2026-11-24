@@ -179,9 +179,25 @@ public class MainActivity extends AppCompatActivity {
                 Intent intent = new Intent(Intent.ACTION_GET_CONTENT);
                 intent.addCategory(Intent.CATEGORY_OPENABLE);
                 intent.setType("*/*");
+                // params.getAcceptTypes() returns the <input accept> attribute's tokens
+                // verbatim, which for our inputs are file extensions like ".json", not MIME
+                // types. Passing an extension string as EXTRA_MIME_TYPES isn't a valid MIME
+                // pattern, and Samsung's "My Files" picker (and some others) then filters
+                // every tab - Recent, Internal storage, cloud - down to "No files" instead of
+                // ignoring the bad hint. Only forward tokens that actually look like MIME
+                // types (contain a "/"); extension-only accepts fall back to the unfiltered
+                // "*/*" already set above, and the page itself validates the chosen file.
                 String[] acceptTypes = params.getAcceptTypes();
-                if (acceptTypes != null && acceptTypes.length > 0 && !TextUtils.isEmpty(acceptTypes[0])) {
-                    intent.putExtra(Intent.EXTRA_MIME_TYPES, acceptTypes);
+                if (acceptTypes != null) {
+                    java.util.ArrayList<String> mimeTypes = new java.util.ArrayList<>();
+                    for (String type : acceptTypes) {
+                        if (!TextUtils.isEmpty(type) && type.contains("/")) {
+                            mimeTypes.add(type);
+                        }
+                    }
+                    if (!mimeTypes.isEmpty()) {
+                        intent.putExtra(Intent.EXTRA_MIME_TYPES, mimeTypes.toArray(new String[0]));
+                    }
                 }
                 try {
                     suppressNextLock = true;
