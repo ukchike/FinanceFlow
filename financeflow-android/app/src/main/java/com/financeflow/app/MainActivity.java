@@ -1,9 +1,19 @@
 package com.financeflow.app;
 
 import android.app.Activity;
+import android.content.ContentResolver;
+import android.content.ContentValues;
 import android.content.Intent;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
+import android.os.Environment;
+import android.provider.MediaStore;
+import android.webkit.JavascriptInterface;
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
 import android.view.Window;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
@@ -38,6 +48,7 @@ public class MainActivity extends Activity {
         settings.setDisplayZoomControls(false);
         settings.setCacheMode(WebSettings.LOAD_DEFAULT);
 
+        webView.addJavascriptInterface(new BackupBridge(), "AndroidBridge");
         webView.setWebViewClient(new WebViewClient());
         webView.setWebChromeClient(new WebChromeClient() {
             @Override
@@ -68,6 +79,60 @@ public class MainActivity extends Activity {
             }
         });
         webView.loadUrl("file:///android_asset/index.html");
+    }
+
+    /**
+     * WebView cannot download blob: URLs, so the in-app Export button hands the JSON to
+     * this bridge. The file is written to the public Downloads folder and the system
+     * share sheet opens so it can be sent straight to another phone (Nearby Share,
+     * WhatsApp, Drive, etc.).
+     */
+    private class BackupBridge {
+        @JavascriptInterface
+        public boolean saveBackup(String fileName, String json) {
+            try {
+                String safeName = fileName == null ? "financeflow_backup.json" : fileName.replaceAll("[^A-Za-z0-9._-]", "_");
+                byte[] bytes = json.getBytes(StandardCharsets.UTF_8);
+                Uri uri;
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    ContentValues values = new ContentValues();
+                    values.put(MediaStore.MediaColumns.DISPLAY_NAME, safeName);
+                    values.put(MediaStore.MediaColumns.MIME_TYPE, "application/json");
+                    values.put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS);
+                    ContentResolver resolver = getContentResolver();
+                    uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values);
+                    if (uri == null) throw new IllegalStateException("Could not create file in Downloads");
+                    try (OutputStream out = resolver.openOutputStream(uri)) {
+                        out.write(bytes);
+                    }
+                } else {
+                    File dir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
+                    if (!dir.exists()) dir.mkdirs();
+                    File file = new File(dir, safeName);
+                    try (FileOutputStream out = new FileOutputStream(file)) {
+                        out.write(bytes);
+                    }
+                    uri = Uri.fromFile(file);
+                }
+                final Uri shared = uri;
+                runOnUiThread(() -> {
+                    Toast.makeText(MainActivity.this, "Backup saved to Downloads: " + safeName, Toast.LENGTH_LONG).show();
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                        Intent send = new Intent(Intent.ACTION_SEND);
+                        send.setType("application/json");
+                        send.putExtra(Intent.EXTRA_STREAM, shared);
+                        send.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                        try {
+                            startActivity(Intent.createChooser(send, "Send backup to another phone"));
+                        } catch (Exception ignored) { }
+                    }
+                });
+                return true;
+            } catch (final Exception e) {
+                runOnUiThread(() -> Toast.makeText(MainActivity.this, "Backup could not be saved: " + e.getMessage(), Toast.LENGTH_LONG).show());
+                return false;
+            }
+        }
     }
 
     @Override

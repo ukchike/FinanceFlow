@@ -34,7 +34,7 @@ jobs:
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: FinanceFlow-v1.0.56
+          name: FinanceFlow-v1.0.57
           path: financeflow-android/app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error
           retention-days: 30
@@ -42,12 +42,12 @@ jobs:
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v1.0.56
-          name: FinanceFlow v1.0.56
+          tag_name: v1.0.57
+          name: FinanceFlow v1.0.57
           body: |
-            FinanceFlow Android v1.0.56
+            FinanceFlow Android v1.0.57
 
-            Includes the backup restore choice on every restore: Merge, Replace, or Cancel.
+            Fixes Export on Android: backups now save to Downloads and open the share sheet, so a backup from one phone can be sent to another and restored (Merge or Replace). Restore behaviour is unchanged.
             The APK is built from the merged main branch source.
           files: financeflow-android/app/build/outputs/apk/release/app-release.apk
           draft: false
