@@ -32,12 +32,6 @@ jobs:
   build:
     runs-on: ubuntu-24.04
 
-    env:
-      FF_SIGNING_KEYSTORE_BASE64: ${{ secrets.FF_SIGNING_KEYSTORE_BASE64 }}
-      FF_SIGNING_STORE_PASSWORD: ${{ secrets.FF_SIGNING_STORE_PASSWORD }}
-      FF_SIGNING_KEY_ALIAS: ${{ secrets.FF_SIGNING_KEY_ALIAS }}
-      FF_SIGNING_KEY_PASSWORD: ${{ secrets.FF_SIGNING_KEY_PASSWORD }}
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -77,32 +71,6 @@ jobs:
       - name: Make gradlew executable
         run: chmod +x gradlew
         working-directory: financeflow-android
-
-      - name: Prepare private signing store when configured
-        if: env.FF_SIGNING_KEYSTORE_BASE64 != ''
-        shell: python
-        run: |
-          import os, base64
-          from pathlib import Path
-          required = ['FF_SIGNING_STORE_PASSWORD', 'FF_SIGNING_KEY_ALIAS', 'FF_SIGNING_KEY_PASSWORD']
-          if not all(os.environ.get(k) for k in required):
-              raise RuntimeError('Signing secrets are incomplete')
-          store = Path(os.environ['RUNNER_TEMP']) / 'financeflow-release.keystore'
-          store.write_bytes(base64.b64decode(os.environ['FF_SIGNING_KEYSTORE_BASE64'], validate=True))
-          store.chmod(0o600)
-          with open(os.environ['GITHUB_ENV'], 'a') as env:
-              env.write('FF_SIGNING_STORE_FILE=' + str(store) + '\n')
-
-      - name: Require private signing secrets for a release
-        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/claude/magical-faraday-4anqxg'
-        shell: bash
-        run: |
-          for key in FF_SIGNING_KEYSTORE_BASE64 FF_SIGNING_STORE_PASSWORD FF_SIGNING_KEY_ALIAS FF_SIGNING_KEY_PASSWORD FF_SIGNING_STORE_FILE; do
-            if [ -z "${!key}" ]; then
-              echo "Missing required Actions secret: $key" >&2
-              exit 1
-            fi
-          done
 
       - name: Build debug APKs for pull request checks
         if: github.event_name == 'pull_request'
