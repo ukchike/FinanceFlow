@@ -670,11 +670,18 @@ public class MainActivity extends AppCompatActivity {
 
     @Override
     public void onBackPressed() {
-        if (webView.canGoBack()) {
-            webView.goBack();
-        } else {
-            super.onBackPressed();
+        // The UI is a single page, so WebView history is always empty and the old
+        // canGoBack() check exited the app on every press. handleBackButton() in index.html
+        // closes the top-most dialog/screen instead and returns "true" when it handled it.
+        if (webView == null || !pageLoaded) {
+            moveTaskToBack(true);
+            return;
         }
+        webView.evaluateJavascript(
+            "(function(){try{return typeof handleBackButton==='function'&&handleBackButton()===true;}catch(e){return false;}})()",
+            value -> {
+                if (!"true".equals(value)) moveTaskToBack(true);
+            });
     }
 
     @Override
@@ -699,6 +706,9 @@ public class MainActivity extends AppCompatActivity {
             // biometric auth. Guarded with typeof in case this fires before the page finishes
             // its first load.
             webView.evaluateJavascript("if(typeof relock==='function')relock();", null);
+        }
+        if (pageLoaded) {
+            webView.evaluateJavascript("if(typeof onAppResume==='function')onAppResume();", null);
         }
     }
 }

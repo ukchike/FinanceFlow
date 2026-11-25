@@ -154,6 +154,13 @@ select.inp{cursor:pointer;-webkit-appearance:none;appearance:none;background-ima
 #lockScreen{position:fixed;inset:0;background:var(--bg);z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:32px}
 #lockScreen .lock-logo{width:72px;height:72px;border-radius:20px;background:linear-gradient(135deg,#2563EB,#4F6BF0 55%,#8B5CF6);display:flex;align-items:center;justify-content:center;color:#fff;font-weight:800;font-size:28px;margin:0 auto 20px}
 /* Feature 6: Toast notifications */
+.bell-btn{position:relative;width:34px;height:34px;border-radius:50%;border:1px solid var(--border);background:var(--card);color:var(--text);font-size:15px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;padding:0}
+.bell-badge{position:absolute;top:-4px;right:-4px;min-width:17px;height:17px;padding:0 4px;border-radius:9px;background:var(--red);color:#fff;font-size:9.5px;font-weight:700;align-items:center;justify-content:center;border:2px solid var(--surface2)}
+.notif-item{display:flex;gap:10px;align-items:flex-start;padding:12px 14px;border-bottom:1px solid var(--border);cursor:pointer}
+.notif-item.unread{background:rgba(var(--accent-rgb),.07)}
+.notif-ic{width:34px;height:34px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0;background:var(--active)}
+.notif-budget{background:rgba(239,68,68,.14)}.notif-bill,.notif-recurring{background:rgba(245,158,11,.14)}.notif-goal{background:rgba(34,197,94,.14)}.notif-bank,.notif-backup{background:rgba(var(--accent-rgb),.14)}
+.notif-x{border:none;background:none;color:var(--muted);font-size:13px;cursor:pointer;padding:4px;flex-shrink:0}
 .toast{position:fixed;bottom:90px;left:50%;transform:translateX(-50%);padding:9px 18px;border-radius:24px;font-size:12px;font-weight:600;z-index:500;white-space:nowrap;box-shadow:0 4px 16px rgba(0,0,0,.4);animation:fadeIn .2s;pointer-events:none}
 .toast-undo{position:fixed;bottom:90px;left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:14px;padding:10px 10px 10px 18px;border-radius:24px;font-size:12px;font-weight:600;z-index:500;white-space:nowrap;box-shadow:0 4px 16px rgba(0,0,0,.4);animation:fadeIn .2s;pointer-events:auto;background:var(--card);border:1px solid var(--border);color:var(--text)}
 .toast-undo button{background:none;border:none;color:var(--accent);font-weight:800;font-size:12px;letter-spacing:.03em;padding:6px 8px;cursor:pointer}
@@ -284,7 +291,8 @@ button:focus-visible,[tabindex]:focus-visible{outline:3px solid var(--accent);ou
     <div class="app-name">FinanceFlow</div>
     <div class="tx-count" id="txCount">0 transactions</div>
   </div>
-  <div style="display:flex;gap:6px">
+  <div style="display:flex;gap:6px;align-items:center">
+    <button class="bell-btn" id="bellBtn" onclick="openNotifCenter()" aria-label="Notifications">&#128276;<span class="bell-badge" id="bellBadge" style="display:none"></span></button>
     <button class="btn btn-g btn-sm" onclick="showModal('upload')">&#8679; Upload</button>
   </div>
 </header>
@@ -365,7 +373,7 @@ function setNbPeriod(p){nbPeriod=p;render();}
 let editingSub=null; // "cat|||sub" currently open for rename/move in Categories tab
 let editingCat=null; // category name currently open for rename in Categories tab
 let expandedBudget=null,expandedCatSet=null,expandedSplit=null;
-let editingProjectId=null,selectedProjectId=null,projectPeriod=new Date().toISOString().slice(0,7),projectCategory="all",projectAccount="all";
+let editingProjectId=null,selectedProjectId=null,projectPeriod=(d=>d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0"))(new Date()),projectCategory="all",projectAccount="all";
 // Collapses transactions sharing a splitGroupId into one combined display entry (used only
 // outside multi-select mode — see rTx). Groups by first-occurrence position, not adjacency, so
 // it stays correct even if an undo or import re-inserts a line out of order.
@@ -748,6 +756,7 @@ function save(){
   appStorage.setItem("ffd_pin",pinHash);
   appStorage.setItem("ffd_reminders",JSON.stringify(remindersEnabled));
   appStorage.setItem("ffd_onboard",JSON.stringify(onboardComplete));
+  appStorage.setItem("ffd_notifs",JSON.stringify(notifications));
   if(remindersEnabled)syncUpcomingBills();
   syncWidgetData();
 }
@@ -780,6 +789,7 @@ function load(){
   try{pinHash=appStorage.getItem("ffd_pin")||"";}catch(e){}
   try{const rm=appStorage.getItem("ffd_reminders");if(rm)remindersEnabled=JSON.parse(rm);}catch(e){}
   try{const ob=appStorage.getItem("ffd_onboard");onboardComplete=ob!==null?JSON.parse(ob):!!profile.name;}catch(e){onboardComplete=!!profile.name;}
+  try{const nt=JSON.parse(appStorage.getItem("ffd_notifs")||"[]");notifications=Array.isArray(nt)?nt.filter(n=>n&&n.id&&n.title):[];}catch(e){notifications=[];}
   if(!accounts.length)accounts=[{id:"cash",name:"Cash",type:"cash",color:"#22c55e"}];
   accounts.forEach(a=>{if(!a.currency)a.currency=currency.code;}); // pre-per-account-currency accounts inherit the app's global currency
   applyTheme();
@@ -965,13 +975,13 @@ function viewBudgetTx(cat){closePP();fCat=cat;fType="expense";fAcc="all";search=
 function getPeriodTx(){const range=getRangeFor(pMode,pDate);return txns.filter(t=>t.date>=range.startStr&&t.date<=range.endStr);}
 function projectStatusLabel(status){return({active:"Active",paused:"Paused",completed:"Completed",cancelled:"Cancelled"})[status]||"Active";}
 function setProjectStatus(id,status){const p=projects.find(x=>x.id===id);if(!p)return;p.status=status;p.updatedAt=new Date().toISOString();save();render();}
-function saveProjectForm(id){const name=$("projectName")?.value.trim(),budget=Number($("projectBudget")?.value),fundedAmount=Number($("projectFunded")?.value||0);if(!name)return alert("Enter a project name.");if(!Number.isFinite(budget)||budget<0)return alert("Enter a valid project budget.");if(!Number.isFinite(fundedAmount)||fundedAmount<0)return alert("Enter a valid funded amount.");const startDate=$("projectStart")?.value||new Date().toISOString().slice(0,10),expectedEndDate=$("projectEnd")?.value||"";if(expectedEndDate&&expectedEndDate<startDate)return alert("Expected completion must be on or after the start date.");const status=$("projectStatus")?.value||"active",data={name,description:$("projectDescription")?.value.trim()||"",startDate,expectedEndDate,budget,fundedAmount,status,updatedAt:new Date().toISOString()};if(id==="new"){const project={id:uid(),...data,createdAt:new Date().toISOString()};projects.push(project);selectedProjectId=project.id;}else{const project=projects.find(x=>x.id===id);if(project)Object.assign(project,data);}editingProjectId=null;save();render();}
+function saveProjectForm(id){const name=$("projectName")?.value.trim(),budget=Number($("projectBudget")?.value),fundedAmount=Number($("projectFunded")?.value||0);if(!name)return alert("Enter a project name.");if(!Number.isFinite(budget)||budget<0)return alert("Enter a valid project budget.");if(!Number.isFinite(fundedAmount)||fundedAmount<0)return alert("Enter a valid funded amount.");const startDate=$("projectStart")?.value||toLocalISODate(new Date()),expectedEndDate=$("projectEnd")?.value||"";if(expectedEndDate&&expectedEndDate<startDate)return alert("Expected completion must be on or after the start date.");const status=$("projectStatus")?.value||"active",data={name,description:$("projectDescription")?.value.trim()||"",startDate,expectedEndDate,budget,fundedAmount,status,updatedAt:new Date().toISOString()};if(id==="new"){const project={id:uid(),...data,createdAt:new Date().toISOString()};projects.push(project);selectedProjectId=project.id;}else{const project=projects.find(x=>x.id===id);if(project)Object.assign(project,data);}editingProjectId=null;save();render();}
 function addProjectCommitment(projectId){const description=$("commitDescription")?.value.trim(),amount=Number($("commitAmount")?.value);if(!description)return alert("Enter a commitment description.");if(!Number.isFinite(amount)||amount<=0)return alert("Enter a commitment amount greater than zero.");commitments.push({id:uid(),projectId,description,amount,dueDate:$("commitDue")?.value||"",status:"open",createdAt:new Date().toISOString()});save();render();}
 function updateCommitment(id,status){const item=commitments.find(x=>x.id===id);if(!item)return;item.status=status;save();render();}
 function rProjects(){
   const selected=projects.find(p=>p.id===selectedProjectId)||projects[0];if(selected)selectedProjectId=selected.id;
   const formProject=editingProjectId&&editingProjectId!=="new"?projects.find(p=>p.id===editingProjectId):null;
-  const form=editingProjectId?`<div class="card"><div class="fz13 fw7 mb10">${editingProjectId==="new"?"New Project":"Edit Project"}</div><div style="display:grid;gap:8px"><input class="inp" id="projectName" placeholder="Project name" value="${esc(formProject?.name)}"><textarea class="inp" id="projectDescription" placeholder="Description" rows="2">${esc(formProject?.description)}</textarea><div class="grid2"><div><span class="edit-label">Start date</span><input class="inp" id="projectStart" type="date" value="${formProject?.startDate||new Date().toISOString().slice(0,10)}"></div><div><span class="edit-label">Expected completion</span><input class="inp" id="projectEnd" type="date" value="${formProject?.expectedEndDate||""}"></div></div><div class="grid2"><div><span class="edit-label">Budget (${esc(currency.symbol)})</span><input class="inp" id="projectBudget" type="number" min="0" value="${formProject?.budget??""}" placeholder="0"></div><div><span class="edit-label">Initial funded amount (${esc(currency.symbol)})</span><input class="inp" id="projectFunded" type="number" min="0" value="${formProject?.fundedAmount??0}"></div></div><div><span class="edit-label">Status</span><select class="inp" id="projectStatus">${["active","paused","completed","cancelled"].map(s=>`<option value="${s}" ${(formProject?.status||"active")==s?"selected":""}>${projectStatusLabel(s)}</option>`).join("")}</select></div></div><div class="flex g8 mt8"><button class="btn btn-p" onclick="saveProjectForm('${editingProjectId}')">Save Project</button><button class="btn btn-g" onclick="editingProjectId=null;render()">Cancel</button></div></div>`:"";
+  const form=editingProjectId?`<div class="card"><div class="fz13 fw7 mb10">${editingProjectId==="new"?"New Project":"Edit Project"}</div><div style="display:grid;gap:8px"><input class="inp" id="projectName" placeholder="Project name" value="${esc(formProject?.name)}"><textarea class="inp" id="projectDescription" placeholder="Description" rows="2">${esc(formProject?.description)}</textarea><div class="grid2"><div><span class="edit-label">Start date</span><input class="inp" id="projectStart" type="date" value="${formProject?.startDate||toLocalISODate(new Date())}"></div><div><span class="edit-label">Expected completion</span><input class="inp" id="projectEnd" type="date" value="${formProject?.expectedEndDate||""}"></div></div><div class="grid2"><div><span class="edit-label">Budget (${esc(currency.symbol)})</span><input class="inp" id="projectBudget" type="number" min="0" value="${formProject?.budget??""}" placeholder="0"></div><div><span class="edit-label">Initial funded amount (${esc(currency.symbol)})</span><input class="inp" id="projectFunded" type="number" min="0" value="${formProject?.fundedAmount??0}"></div></div><div><span class="edit-label">Status</span><select class="inp" id="projectStatus">${["active","paused","completed","cancelled"].map(s=>`<option value="${s}" ${(formProject?.status||"active")==s?"selected":""}>${projectStatusLabel(s)}</option>`).join("")}</select></div></div><div class="flex g8 mt8"><button class="btn btn-p" onclick="saveProjectForm('${editingProjectId}')">Save Project</button><button class="btn btn-g" onclick="editingProjectId=null;render()">Cancel</button></div></div>`:"";
   const cards=projects.map(p=>{const summary=FinanceFlowProject.summarizeProject(p,txns,commitments,{},primaryAmount),spent=summary.cumulativeSpend,committed=summary.committed,funded=summary.funded,pct=summary.budgetUtilization;return`<button class="card" style="text-align:left;width:100%;cursor:pointer;border-color:${selected?.id===p.id?"var(--accent)":"var(--border)"}" onclick="selectedProjectId='${p.id}';render()"><div class="flex-b"><span class="fz12 fw7">${esc(p.name)}</span><span class="fz9 ${p.status==="active"?"green":"muted"}">${projectStatusLabel(p.status)}</span></div><div class="fz10 muted mt4">Funded ${fmtK(funded)} · spent ${fmtK(spent)} · committed ${fmtK(committed)}</div><div class="bar-track mt6"><div class="bar-fill" style="width:${pct}%;background:${pct>=100?"var(--red)":"var(--accent)"}"></div></div></button>`;}).join("");
   let detail="";if(selected){const allProjectTx=txns.filter(t=>t.projectId===selected.id&&t.type==="expense"),matching=allProjectTx.filter(t=>(projectPeriod==="all"||String(t.date||"").slice(0,7)===projectPeriod)&&(projectCategory==="all"||t.category===projectCategory)&&(projectAccount==="all"||t.accountId===projectAccount)),allSpend=allProjectTx.reduce((s,t)=>s+primaryAmount(t),0),monthSpend=matching.reduce((s,t)=>s+primaryAmount(t),0),openCommitments=commitments.filter(c=>c.projectId===selected.id&&c.status==="open"),committed=openCommitments.reduce((s,c)=>s+Number(c.amount||0),0),remaining=Number(selected.budget||0)-allSpend-committed,funded=Number(selected.fundedAmount||0),balance=funded-allSpend-committed,usedPct=Number(selected.budget)>0?Math.min((allSpend+committed)/Number(selected.budget)*100,100):0,fundingPct=Number(selected.budget)>0?Math.min(funded/Number(selected.budget)*100,100):0;const txRows=matching.slice().sort((a,b)=>String(b.date).localeCompare(String(a.date))).map(t=>`<div class="tx-row" onclick="showModal('edit','${t.id}')"><div style="flex:1"><div class="fz11 fw6">${esc(t.description||t.category)}</div><div class="fz9 muted">${esc(t.date)} · ${esc(t.category)} · ${esc(accounts.find(a=>a.id===t.accountId)?.name||"")}</div></div><span class="fz11 fw7 red">-${fmt(primaryAmount(t))}</span></div>`).join("")||`<div class="muted fz10 tac" style="padding:14px">No project expenses match these filters.</div>`;const commitmentRows=openCommitments.map(c=>`<div class="flex-b" style="padding:8px 0;border-bottom:1px solid var(--border)"><div><div class="fz10 fw6">${esc(c.description)}</div><div class="fz9 muted">${c.dueDate?"Due "+esc(c.dueDate):"No due date"}</div></div><div class="flex g6"><span class="fz10 fw7">${fmt(c.amount)}</span><button class="btn btn-g btn-sm" onclick="updateCommitment('${c.id}','paid')">Paid</button><button class="btn btn-g btn-sm" onclick="updateCommitment('${c.id}','cancelled')">Cancel</button></div></div>`).join("")||`<div class="fz10 muted">No outstanding commitments.</div>`;
     detail=`<div class="card"><div class="flex-b mb8"><div><div class="fz14 fw8">${esc(selected.name)}</div><div class="fz10 muted">${esc(selected.startDate)}${selected.expectedEndDate?" · expected "+esc(selected.expectedEndDate):""}</div></div><button class="btn btn-g btn-sm" onclick="editingProjectId='${selected.id}';render()">Edit</button></div><div class="fz10 muted mb8">${esc(selected.description||"No description")}</div><div class="grid2 mb8"><div class="stat"><div class="stat-label">Selected-period expenses</div><div class="stat-val red">${fmt(monthSpend)}</div></div><div class="stat"><div class="stat-label">Cumulative expenses</div><div class="stat-val red">${fmt(allSpend)}</div></div><div class="stat"><div class="stat-label">Total funding</div><div class="stat-val green">${fmt(funded)}</div></div><div class="stat"><div class="stat-label">Outstanding commitments</div><div class="stat-val">${fmt(committed)}</div></div><div class="stat"><div class="stat-label">Project balance</div><div class="stat-val ${balance<0?"red":"green"}">${fmt(balance)}</div></div><div class="stat"><div class="stat-label">Budget remaining</div><div class="stat-val ${remaining<0?"red":"green"}">${fmt(remaining)}</div></div></div><div class="flex-b fz10 muted mb4"><span>Funding progress</span><span>${fundingPct.toFixed(0)}% of budget</span></div><div class="bar-track mb8"><div class="bar-fill" style="width:${fundingPct}%;background:var(--green)"></div></div><div class="flex-b fz10 muted mb4"><span>Budget utilisation (expenses + commitments)</span><span>${usedPct.toFixed(0)}%</span></div><div class="bar-track mb10"><div class="bar-fill" style="width:${usedPct}%;background:${usedPct>=100?"var(--red)":"var(--accent)"}"></div></div><div class="grid2 mb12"><div><span class="edit-label">Status</span><select class="inp" onchange="setProjectStatus('${selected.id}',this.value)">${["active","paused","completed","cancelled"].map(s=>`<option value="${s}" ${selected.status===s?"selected":""}>${projectStatusLabel(s)}</option>`).join("")}</select></div><div><span class="edit-label">Report period</span><input class="inp" type="month" value="${projectPeriod==="all"?"":projectPeriod}" onchange="projectPeriod=this.value||'all';render()"><button class="btn btn-g btn-sm mt4" onclick="projectPeriod='all';render()">All time</button></div></div><div class="grid2 mb10"><select class="inp" onchange="projectCategory=this.value;render()"><option value="all">All categories</option>${allEC().map(c=>`<option value="${esc(c)}" ${projectCategory===c?"selected":""}>${esc(c)}</option>`).join("")}</select><select class="inp" onchange="projectAccount=this.value;render()"><option value="all">All accounts</option>${accounts.map(a=>`<option value="${esc(a.id)}" ${projectAccount===a.id?"selected":""}>${esc(a.name)}</option>`).join("")}</select></div><div class="fz11 fw7 mb6">Project expenses (${matching.length})</div>${txRows}</div><div class="card"><div class="fz12 fw7 mb8">Outstanding commitments</div>${commitmentRows}<div class="divider"></div><div class="fz11 fw7 mb6">Record a commitment</div><div style="display:grid;gap:7px"><input class="inp" id="commitDescription" placeholder="What is committed?"><input class="inp" id="commitAmount" type="number" min="0.01" placeholder="Amount (${esc(currency.symbol)})"><input class="inp" id="commitDue" type="date"><button class="btn btn-p" onclick="addProjectCommitment('${selected.id}')">Add commitment</button></div><div class="fz9 muted mt6">Record the actual expense separately as a transaction linked to this project.</div></div>`;
@@ -2088,26 +2098,138 @@ function performUndo(){
   clearTimeout(_undoTimer);
   render();
 }
+// Returns {level:"over"|"warn",title,body,key} for a budget at the given date, or null.
+// The key is per budget, per level, per period, so each threshold is logged once per period.
+function budgetAlertFor(b,date){
+  if(budgetBaseLimit(b)<=0)return null;
+  const bp=b.period||"month";
+  const spent=budgetSpent(b,bp,date),limit=budgetEffLimit(b,bp,date);
+  const pct=limit>0?spent/limit*100:(spent>0?100:0);
+  const periodKey=getRangeFor(bp,date).startStr;
+  if(pct>=100)return{level:"over",title:"Budget exceeded: "+b.cat,body:`Spent ${fmt(spent)} of ${fmt(limit)} limit`,key:`budget:${b.id||b.cat}:over:${bp}:${periodKey}`,pct};
+  if(pct>=80)return{level:"warn",title:"Budget alert: "+b.cat,body:`${pct.toFixed(0)}% used — ${fmt(Math.max(0,limit-spent))} remaining`,key:`budget:${b.id||b.cat}:warn:${bp}:${periodKey}`,pct};
+  return null;
+}
 function checkBudgetAlerts(tx){
   if(tx.type!=="expense")return;
   budgets.forEach(b=>{
-    if(b.cat!==tx.category||budgetBaseLimit(b)<=0)return;
-    const spent=budgetSpent(b,b.period||"month",FinanceCore.date(tx.date));
-    const limit=budgetEffLimit(b,b.period||"month",FinanceCore.date(tx.date));
-    const pct=limit>0?spent/limit*100:(spent>0?100:0);
-    if(pct>=100){
-      const title="Budget Exceeded: "+b.cat;
-      const body=`Spent ${fmt(spent)} of ${fmt(limit)} limit`;
-      showToast("⚠️ Over budget: "+b.cat,"red");
-      if(window.Android)window.Android.showNotification(title,body);
-    }else if(pct>=80){
-      const title="Budget Alert: "+b.cat;
-      const body=`${pct.toFixed(0)}% used — ${fmt(Math.max(0,limit-spent))} remaining`;
-      showToast("⚠️ "+pct.toFixed(0)+"% of "+b.cat+" budget used","warn");
-      if(window.Android)window.Android.showNotification(title,body);
-    }
+    if(b.cat!==tx.category)return;
+    const a=budgetAlertFor(b,FinanceCore.date(tx.date));if(!a)return;
+    showToast(a.level==="over"?"⚠️ Over budget: "+b.cat:"⚠️ "+a.pct.toFixed(0)+"% of "+b.cat+" budget used",a.level==="over"?"red":"warn");
+    // Phone notification only the first time each threshold is crossed in a period; every
+    // later expense in the same category used to re-post it.
+    if(pushNotif(a.key,"budget",a.title,a.body,"budgets")&&window.Android)window.Android.showNotification(a.title,a.body);
   });
 }
+
+// ── NOTIFICATION CENTER ──
+let notifications=[],notifOpen=false;
+const NOTIF_ICONS={budget:"&#9888;&#65039;",bill:"&#128197;",recurring:"&#128257;",goal:"&#127919;",bank:"&#127974;",backup:"&#128190;",info:"&#128276;"};
+function persistNotifs(){try{appStorage.setItem("ffd_notifs",JSON.stringify(notifications));}catch(e){}}
+function pushNotif(key,type,title,body,action){
+  if(key&&notifications.some(n=>n.key===key))return false;
+  notifications.unshift({id:uid(),key:key||"",type,title,body,action:action||"",ts:Date.now(),read:false});
+  if(notifications.length>100)notifications.length=100;
+  persistNotifs();updateNotifBadge();if(notifOpen)renderNotifCenter();
+  return true;
+}
+function unreadNotifCount(){return notifications.filter(n=>!n.read).length;}
+function updateNotifBadge(){
+  const b=$("bellBadge");if(!b)return;
+  const n=unreadNotifCount();
+  b.textContent=n>99?"99+":String(n);b.style.display=n?"flex":"none";
+  const btn=$("bellBtn");if(btn)btn.setAttribute("aria-label",n?`Notifications, ${n} unread`:"Notifications");
+}
+// Builds notifications from current data. Safe to call often: every entry has a dedupe key.
+function scanNotifications(){
+  if(!onboardComplete)return;
+  const now=new Date(),today=toLocalISODate(now);
+  const soon=new Date();soon.setDate(soon.getDate()+3);const soonStr=toLocalISODate(soon);
+  scheduledPayments.filter(p=>p.status==="pending").forEach(p=>{
+    pushNotif("sched:"+p.id,"recurring",(p.type==="income"?"Income due: ":"Payment due: ")+(p.description||p.category),`${fmtD(p.date)} · ${fmtCur(p.amount,txnCurrency(p))} — confirm or skip it`,"recurring");
+  });
+  recurring.filter(r=>r.active).forEach(r=>{
+    let next=r.nextDue;
+    for(let i=0;next&&next<today&&i<5000;i++)next=advanceDate(next,r.frequency,r.anchorDate);
+    if(!next||next>soonStr||scheduledPayments.some(p=>p.templateId===r.id&&p.date===next))return;
+    const days=Math.round((FinanceCore.date(next)-FinanceCore.date(today))/864e5);
+    pushNotif(`upcoming:${r.id}:${next}`,"bill",(r.type==="income"?"Upcoming income: ":"Upcoming bill: ")+(r.description||r.category),`${days<=0?"Due today":days===1?"Due tomorrow":"Due in "+days+" days"} · ${fmtCur(r.amount,txnCurrency(r))}`,"recurring");
+  });
+  budgets.forEach(b=>{const a=budgetAlertFor(b,now);if(a)pushNotif(a.key,"budget",a.title,a.body,"budgets");});
+  goals.forEach(g=>{
+    if(g.target>0&&g.saved>=g.target)pushNotif("goal:"+g.id+":reached","goal","Goal reached: "+g.name,`You saved ${fmt(g.saved)} of ${fmt(g.target)}`,"goals");
+    else if(g.targetDate&&g.targetDate<today)pushNotif("goal:"+g.id+":due:"+g.targetDate,"goal","Goal date passed: "+g.name,`${fmt(Math.max(0,g.target-g.saved))} still to go — update the target date or amount`,"goals");
+  });
+  if(appFlavor==="full"&&bankAlertsEnabled){
+    const pend=getPendingBankAlerts();
+    if(pend.length){const last=pend.reduce((m,p)=>Math.max(m,Number(p.timestamp)||0),0);pushNotif(`bank:${pend.length}:${last}`,"bank",pend.length+" bank alert"+(pend.length>1?"s":"")+" to review","Detected from your bank's notifications — confirm before they're added","notifications");}
+  }
+  if(txns.length>=10){
+    const last=Number(appStorage.getItem("ffd_lastbackup"))||0;
+    if(Date.now()-last>30*864e5)pushNotif("backup:"+today.slice(0,7),"backup","Back up your data",last?"Your last backup was "+Math.floor((Date.now()-last)/864e5)+" days ago":"You haven't saved a backup yet — keep a copy off this phone","backup");
+  }
+}
+function notifTimeAgo(ts){
+  const s=Math.max(0,Math.floor((Date.now()-ts)/1000));
+  if(s<60)return"Just now";if(s<3600)return Math.floor(s/60)+"m ago";if(s<86400)return Math.floor(s/3600)+"h ago";
+  const d=Math.floor(s/86400);return d===1?"Yesterday":d<7?d+"d ago":new Date(ts).toLocaleDateString("en-GB",{day:"numeric",month:"short"});
+}
+function openNotifCenter(){closePP();notifOpen=true;renderNotifCenter();}
+function closeNotifCenter(){
+  notifOpen=false;
+  let changed=false;notifications.forEach(n=>{if(!n.read){n.read=true;changed=true;}});
+  if(changed)persistNotifs();
+  const p=$("notifPanel");if(p)p.innerHTML="";updateNotifBadge();
+}
+function renderNotifCenter(){
+  let p=$("notifPanel");if(!p){p=document.createElement("div");p.id="notifPanel";document.body.appendChild(p);}
+  const startToday=new Date();startToday.setHours(0,0,0,0);
+  const item=n=>`<div class="notif-item ${n.read?"":"unread"}" onclick="openNotif('${escJs(n.id)}')"><div class="notif-ic notif-${esc(n.type)}">${NOTIF_ICONS[n.type]||NOTIF_ICONS.info}</div><div style="flex:1;min-width:0"><div class="fz12 ${n.read?"fw6":"fw8"}">${esc(n.title)}</div><div class="fz11 muted mt4">${esc(n.body)}</div><div class="fz10 muted mt4">${notifTimeAgo(n.ts)}</div></div><button class="notif-x" onclick="event.stopPropagation();dismissNotif('${escJs(n.id)}')" aria-label="Dismiss">&#10005;</button></div>`;
+  const todayItems=notifications.filter(n=>n.ts>=startToday.getTime()),older=notifications.filter(n=>n.ts<startToday.getTime());
+  const unread=unreadNotifCount();
+  const body=notifications.length
+    ?(todayItems.length?`<div class="st-label" style="padding:12px 14px 0">Today</div>${todayItems.map(item).join("")}`:"")+(older.length?`<div class="st-label" style="padding:12px 14px 0">Earlier</div>${older.map(item).join("")}`:"")
+    :`<div class="tac" style="padding:70px 24px"><div style="font-size:42px;margin-bottom:10px">&#128276;</div><div class="fz14 fw7 mb4">You're all caught up</div><div class="fz11 muted">Budget alerts, upcoming bills, goals and backup reminders will show up here.</div></div>`;
+  p.innerHTML=`<div class="settings-panel" style="z-index:205"><div class="settings-drawer">
+    <div class="settings-hdr"><button class="settings-back" onclick="closeNotifCenter()" title="Back" aria-label="Close notifications">&#8592;</button><div style="flex:1;min-width:0"><div class="fz14 fw7">Notifications</div><div class="fz10 muted">${unread?unread+" unread":"No unread notifications"}</div></div>
+    ${notifications.length?`<div class="flex g6" style="align-items:center"><button class="btn btn-g btn-sm" onclick="markAllNotifsRead()" ${unread?"":"disabled"}>Mark read</button><button class="btn btn-g btn-sm" onclick="clearNotifs()">Clear</button></div>`:""}</div>
+    <div class="settings-body">${body}</div>
+  </div></div>`;
+}
+function openNotif(id){
+  const n=notifications.find(x=>x.id===id);if(!n)return;
+  n.read=true;persistNotifs();closeNotifCenter();
+  if(n.action==="budgets")goTo("budgets");
+  else if(n.action==="transactions")goTo("transactions");
+  else if(["recurring","goals","backup","notifications"].includes(n.action))openSettings(n.action);
+}
+function dismissNotif(id){const i=notifications.findIndex(n=>n.id===id);if(i<0)return;notifications.splice(i,1);persistNotifs();updateNotifBadge();renderNotifCenter();}
+function markAllNotifsRead(){notifications.forEach(n=>n.read=true);persistNotifs();updateNotifBadge();renderNotifCenter();}
+// Cleared entries keep their dedupe keys out of the list, so a still-true condition (e.g. a
+// budget still over its limit) will re-appear on the next scan; that's intended.
+function clearNotifs(){if(!confirm("Clear all notifications?"))return;notifications=[];persistNotifs();updateNotifBadge();renderNotifCenter();}
+
+// ── ANDROID BACK BUTTON ──
+// Called by MainActivity.onBackPressed(). Returns true when it handled the press (closed
+// something or navigated), false to let the app go to the background.
+let _backExitArmedAt=0;
+function handleBackButton(){
+  const ls=$("lockScreen");if(pinLockActive||(ls&&ls.style.display!=="none"))return false;
+  const po=$("pickerOverlay");if(po&&po.innerHTML.trim()){closePicker();return true;}
+  if(notifOpen){closeNotifCenter();return true;}
+  const mc=$("modal-container");if(mc&&mc.innerHTML.trim()){showModal("close");return true;}
+  if(ppOpen||ppBOpen){closePP();render();return true;}
+  if(settingsOpen){settingsBack();return true;}
+  if(V==="transactions"&&selectMode){toggleSelectMode();return true;}
+  if(V==="transactions"&&calSelectedDay){calSelectedDay=null;render();return true;}
+  if(V==="dashboard"&&homeCustomize){homeCustomize=false;render();return true;}
+  if(V==="projects"&&(editingProjectId||selectedProjectId)){editingProjectId=null;selectedProjectId=null;render();return true;}
+  if(V!=="dashboard"){goTo("dashboard");return true;}
+  if(Date.now()-_backExitArmedAt<2000)return false;
+  _backExitArmedAt=Date.now();showToast("Press back again to exit","warn");return true;
+}
+// Called by MainActivity.onResume() every time the app comes back to the foreground.
+function onAppResume(){try{scanNotifications();}catch(e){}}
 
 // ── FEATURE 2: RECURRING ──
 function advanceDate(dateStr,freq,anchor){return FinanceCore.nextDue(dateStr,freq,anchor);}
@@ -2162,7 +2284,11 @@ function saveOrDownload(filename,content,mime){
     showToast("💾 Downloaded "+filename,"green");
   }
 }
+let _backupSavePending=false;
+function markBackupDone(){appStorage.setItem("ffd_lastbackup",String(Date.now()));notifications=notifications.filter(n=>n.type!=="backup");persistNotifs();updateNotifBadge();}
 window.onSaveResult=function(success){
+  if(success&&_backupSavePending)markBackupDone();
+  _backupSavePending=false;
   if(success)showToast("✅ Backup saved","green");
   else showToast("⚠️ Save cancelled","warn");
 };
@@ -2247,6 +2373,7 @@ function exportData(){
   // Those are deliberately left out: a backup file travels to Google Drive and another device,
   // and restoring a lock the user can no longer satisfy would lock them out of their own data.
   const content=JSON.stringify(backupData());
+  _backupSavePending=true;if(!(window.Android&&window.Android.saveFile))setTimeout(markBackupDone,0);
   saveOrDownload("financeflow_"+toLocalISODate(new Date())+".json",content,"application/json");
 }
 async function backupKey(password,salt){
@@ -2273,7 +2400,7 @@ async function exportEncryptedData(){
   if(encryptedBackupBusy)return;encryptedBackupBusy=true;
   try{const password=prompt('Choose a backup password (at least 10 characters). Keep it separately: it cannot be recovered.');if(password===null)return;
     const confirmation=prompt('Confirm backup password.');if(confirmation===null)return;if(password!==confirmation)throw Error('Backup passwords do not match');
-    const content=JSON.stringify(await encryptBackup(backupData(),password));saveOrDownload('financeflow_encrypted_'+toLocalISODate(new Date())+'.json',content,'application/json');
+    const content=JSON.stringify(await encryptBackup(backupData(),password));_backupSavePending=true;if(!(window.Android&&window.Android.saveFile))setTimeout(markBackupDone,0);saveOrDownload('financeflow_encrypted_'+toLocalISODate(new Date())+'.json',content,'application/json');
   }catch(e){alert(e.message);}finally{encryptedBackupBusy=false;}
 }
 function backupData(){return {
@@ -2287,7 +2414,7 @@ function backupData(){return {
 }
 
 // ── DATA ACTIONS ──
-function resetAll(){if(confirm("Clear ALL data and start fresh?")){["ffd_tx","ffd_bd","ffd_acc","ffd_projects","ffd_commitments","ffd_ec","ffd_ic","ffd_pro","ffd_rec","ffd_bio","ffd_hidecats","ffd_bankalerts","ffd_homelayout","ffd_catorder","ffd_goals","ffd_pin","ffd_reminders","ffd_onboard","ffd_usertags","ffd_homecards","ffd_hiddensections"].forEach(k=>appStorage.removeItem(k));txns=[];budgets=[];projects=[];commitments=[];importRules=[];accounts=[{id:"cash",name:"Cash",type:"cash",color:"#22c55e",currency:currency.code}];userEC={};userIC={};profile={name:""};recurring=[];scheduledPayments=[];importHistory=[];biometricEnabled=false;hiddenDefaultCats={expense:[],income:[]};bankAlertsEnabled=false;homeLayout=DEFAULT_HOME_LAYOUT.slice();showBalanceHome=true;showAccountsHome=true;showNetworthChartHome=false;hiddenHomeSections=["trend"];catOrder={expense:[],income:[]};goals=[];userTags=[];pinHash="";pinLockActive=false;remindersEnabled=false;onboardComplete=false;onboardStep=0;if(window.Android&&window.Android.cancelReminders)window.Android.cancelReminders();save();closeSettings();}}
+function resetAll(){if(confirm("Clear ALL data and start fresh?")){["ffd_tx","ffd_bd","ffd_acc","ffd_projects","ffd_commitments","ffd_ec","ffd_ic","ffd_pro","ffd_rec","ffd_bio","ffd_hidecats","ffd_bankalerts","ffd_homelayout","ffd_catorder","ffd_goals","ffd_pin","ffd_reminders","ffd_onboard","ffd_usertags","ffd_homecards","ffd_hiddensections"].forEach(k=>appStorage.removeItem(k));txns=[];budgets=[];projects=[];commitments=[];importRules=[];accounts=[{id:"cash",name:"Cash",type:"cash",color:"#22c55e",currency:currency.code}];userEC={};userIC={};profile={name:""};recurring=[];scheduledPayments=[];importHistory=[];biometricEnabled=false;hiddenDefaultCats={expense:[],income:[]};bankAlertsEnabled=false;homeLayout=DEFAULT_HOME_LAYOUT.slice();showBalanceHome=true;showAccountsHome=true;showNetworthChartHome=false;hiddenHomeSections=["trend"];catOrder={expense:[],income:[]};goals=[];userTags=[];pinHash="";pinLockActive=false;remindersEnabled=false;onboardComplete=false;onboardStep=0;notifications=[];appStorage.removeItem("ffd_lastbackup");updateNotifBadge();if(window.Android&&window.Android.cancelReminders)window.Android.cancelReminders();save();closeSettings();}}
 function validateBackupData(d){
   const fail=m=>{throw new Error(m);},obj=v=>v&&typeof v==='object'&&!Array.isArray(v);
   if(!obj(d)||!Array.isArray(d.txns)||!Array.isArray(d.accounts)||!d.accounts.length)fail('Not a FinanceFlow backup: transactions and accounts are required.');
@@ -3029,6 +3156,7 @@ initializeFinancialState();
 save();
 processRecurring();
 render();
+scanNotifications();updateNotifBadge();
 relock(); // cold-start lock check; subsequent checks come from native onResume via relock() too
 syncWidgetData(); // widget should reflect current data as soon as the app opens, not just on next save()
 // Surface any bank alerts detected while the app was closed
