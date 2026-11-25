@@ -266,6 +266,67 @@ button:focus-visible,[tabindex]:focus-visible{outline:3px solid var(--accent);ou
 .entry-modal.edit-entry .entry-body>div:nth-child(5){grid-column:2;grid-row:3}
 .transfer-modal{display:flex;flex-direction:column;max-height:calc(100dvh - 12px);overflow:hidden!important}.transfer-body{min-height:0;overflow:auto}.transfer-save{flex-shrink:0}
 
+
+/* ── Visual polish layer ── */
+body{font-variant-numeric:tabular-nums;letter-spacing:-.005em}
+.hdr{padding:10px 14px;background:color-mix(in srgb,var(--surface2) 88%,transparent);backdrop-filter:saturate(1.4) blur(12px);-webkit-backdrop-filter:saturate(1.4) blur(12px)}
+.app-name{font-size:16px;font-weight:800;letter-spacing:-.02em}
+.main-area{padding:14px 14px 120px}
+.card{border-radius:18px;padding:16px}
+.stat{border-radius:16px;padding:12px 12px 13px}
+.stat-label{font-size:9.5px;font-weight:600;letter-spacing:.5px}
+.stat-val{font-size:17px;font-weight:800;letter-spacing:-.02em;margin-top:2px}
+[data-theme="light"] .card,[data-theme="light"] .stat,[data-theme="light"] .settings-card{box-shadow:0 1px 2px rgba(16,24,40,.04),0 2px 8px rgba(16,24,40,.06);border-color:rgba(16,24,40,.07)}
+.btn{border-radius:12px;letter-spacing:-.005em}
+.btn:disabled{opacity:.45;cursor:default;transform:none}
+[data-theme="light"] .btn-g{background:var(--card);color:var(--text)}
+.btn-p:active{box-shadow:0 1px 4px rgba(var(--accent-rgb),.35)}
+.inp{border-radius:12px;min-height:44px}
+.inp::placeholder{color:var(--muted);opacity:.75}
+[data-theme="light"] .inp{background-color:#f5f6f8}
+/* segmented controls */
+.tab-row{background:var(--active);border:none;border-radius:12px;padding:3px;gap:3px}
+.tab-btn{border-radius:9px;padding:8px;transition:background .15s,color .15s}
+.tab-btn.active{box-shadow:0 1px 4px rgba(var(--accent-rgb),.35)}
+/* period picker */
+.pp-nav{width:38px;height:38px;border-radius:12px;background:var(--card)}
+.pp-drop-btn{padding:10px 14px;border-radius:12px;font-size:13px}
+.pp-menu{border-radius:14px}
+/* transaction list */
+.tx-row{padding:12px 14px;gap:10px;transition:background .12s}
+.tx-icon{width:38px;height:38px;border-radius:12px;font-size:16px}
+.date-hdr{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;padding:10px 14px 5px}
+.cat-badge{border-radius:7px;padding:4px 8px;font-size:9.5px}
+.tx-filters{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}
+.tx-filters .tx-search{grid-column:1/-1}
+.tx-filters .inp{min-height:40px;padding-top:9px;padding-bottom:9px}
+/* progress bars */
+.bar-track{height:8px;border-radius:4px}
+.bar-fill{border-radius:4px}
+/* bottom navigation: icon pill for the active tab */
+.bnav{padding-top:4px;box-shadow:0 -4px 18px rgba(0,0,0,.12)}
+[data-theme="light"] .bnav{box-shadow:0 -2px 12px rgba(16,24,40,.06)}
+.bnav-btn,.bnav-btn.active{background:none;font-size:11px;gap:3px;padding:4px 0 6px}
+.bnav-btn .ni{font-size:18px;padding:4px 16px;border-radius:14px;transition:background .2s,transform .2s}
+.bnav-btn.active .ni{background:rgba(var(--accent-rgb),.16);transform:translateY(-1px)}
+.bnav-btn:active .ni{transform:scale(.92)}
+.fab{bottom:82px;width:58px;height:58px;border-radius:18px;box-shadow:0 6px 20px rgba(var(--accent-rgb),.45),0 2px 6px rgba(0,0,0,.2)}
+/* sheets & dialogs */
+.modal-bg{background:rgba(0,0,0,.55);backdrop-filter:blur(3px);-webkit-backdrop-filter:blur(3px)}
+.modal{border-radius:24px 24px 0 0;padding:14px 18px calc(22px + env(safe-area-inset-bottom))}
+.modal-handle{width:40px;height:5px;border-radius:3px;margin-bottom:14px}
+.modal button.btn[style*="padding:2px"]{width:32px;height:32px;padding:0!important;border-radius:50%;background:var(--active);justify-content:center;font-size:13px}
+/* settings hub */
+.settings-card{border-radius:18px;gap:6px}
+.settings-card-icon{width:40px;height:40px;border-radius:12px;background:rgba(var(--accent-rgb),.12);display:flex;align-items:center;justify-content:center;font-size:20px;margin-bottom:4px}
+.settings-back{border-radius:12px;background:var(--active)}
+/* empty states */
+.empty-state{background:var(--card);border:1px dashed var(--border);border-radius:18px;padding:28px 20px;text-align:center}
+.empty-ic{width:56px;height:56px;border-radius:18px;background:rgba(var(--accent-rgb),.12);display:flex;align-items:center;justify-content:center;font-size:26px;margin:0 auto 12px}
+/* toasts */
+.toast,.toast-undo{backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);bottom:100px}
+.bell-btn{border-radius:12px}
+.avatar-btn{width:34px;height:34px}
 </style>
 </head>
 <body>
@@ -491,7 +552,8 @@ function moveSub(type,cat,subName,dir){
 function allEC(){return Object.keys(getEC());}
 function allIC(){return Object.keys(getIC());}
 function allCats(){return[...allEC(),...allIC()];}
-function clr(n){return CAT_COLORS[n]||"#6366f1";}
+const CAT_FALLBACK=["#f97316","#06b6d4","#a855f7","#eab308","#ec4899","#10b981","#3b82f6","#f43f5e","#84cc16","#8b5cf6","#14b8a6","#fb923c","#0ea5e9","#d946ef","#22c55e","#64748b"];
+function clr(n){if(CAT_COLORS[n])return CAT_COLORS[n];let h=0;const s=String(n||"");for(let i=0;i<s.length;i++)h=(h*31+s.charCodeAt(i))>>>0;return CAT_FALLBACK[h%CAT_FALLBACK.length];}
 function budgetBarColor(pct,over){if(over)return"var(--red)";if(pct>=80)return"var(--warn)";if(pct>=50)return"var(--green)";return"var(--accent)";}
 // Spend to compare against a budget's limit. For a "rollup" budget — one with no category
 // limit of its own, whose limit is the sum of its subcategory limits — only the budgeted
@@ -986,7 +1048,7 @@ function rProjects(){
   let detail="";if(selected){const allProjectTx=txns.filter(t=>t.projectId===selected.id&&t.type==="expense"),matching=allProjectTx.filter(t=>(projectPeriod==="all"||String(t.date||"").slice(0,7)===projectPeriod)&&(projectCategory==="all"||t.category===projectCategory)&&(projectAccount==="all"||t.accountId===projectAccount)),allSpend=allProjectTx.reduce((s,t)=>s+primaryAmount(t),0),monthSpend=matching.reduce((s,t)=>s+primaryAmount(t),0),openCommitments=commitments.filter(c=>c.projectId===selected.id&&c.status==="open"),committed=openCommitments.reduce((s,c)=>s+Number(c.amount||0),0),remaining=Number(selected.budget||0)-allSpend-committed,funded=Number(selected.fundedAmount||0),balance=funded-allSpend-committed,usedPct=Number(selected.budget)>0?Math.min((allSpend+committed)/Number(selected.budget)*100,100):0,fundingPct=Number(selected.budget)>0?Math.min(funded/Number(selected.budget)*100,100):0;const txRows=matching.slice().sort((a,b)=>String(b.date).localeCompare(String(a.date))).map(t=>`<div class="tx-row" onclick="showModal('edit','${t.id}')"><div style="flex:1"><div class="fz11 fw6">${esc(t.description||t.category)}</div><div class="fz9 muted">${esc(t.date)} · ${esc(t.category)} · ${esc(accounts.find(a=>a.id===t.accountId)?.name||"")}</div></div><span class="fz11 fw7 red">-${fmt(primaryAmount(t))}</span></div>`).join("")||`<div class="muted fz10 tac" style="padding:14px">No project expenses match these filters.</div>`;const commitmentRows=openCommitments.map(c=>`<div class="flex-b" style="padding:8px 0;border-bottom:1px solid var(--border)"><div><div class="fz10 fw6">${esc(c.description)}</div><div class="fz9 muted">${c.dueDate?"Due "+esc(c.dueDate):"No due date"}</div></div><div class="flex g6"><span class="fz10 fw7">${fmt(c.amount)}</span><button class="btn btn-g btn-sm" onclick="updateCommitment('${c.id}','paid')">Paid</button><button class="btn btn-g btn-sm" onclick="updateCommitment('${c.id}','cancelled')">Cancel</button></div></div>`).join("")||`<div class="fz10 muted">No outstanding commitments.</div>`;
     detail=`<div class="card"><div class="flex-b mb8"><div><div class="fz14 fw8">${esc(selected.name)}</div><div class="fz10 muted">${esc(selected.startDate)}${selected.expectedEndDate?" · expected "+esc(selected.expectedEndDate):""}</div></div><button class="btn btn-g btn-sm" onclick="editingProjectId='${selected.id}';render()">Edit</button></div><div class="fz10 muted mb8">${esc(selected.description||"No description")}</div><div class="grid2 mb8"><div class="stat"><div class="stat-label">Selected-period expenses</div><div class="stat-val red">${fmt(monthSpend)}</div></div><div class="stat"><div class="stat-label">Cumulative expenses</div><div class="stat-val red">${fmt(allSpend)}</div></div><div class="stat"><div class="stat-label">Total funding</div><div class="stat-val green">${fmt(funded)}</div></div><div class="stat"><div class="stat-label">Outstanding commitments</div><div class="stat-val">${fmt(committed)}</div></div><div class="stat"><div class="stat-label">Project balance</div><div class="stat-val ${balance<0?"red":"green"}">${fmt(balance)}</div></div><div class="stat"><div class="stat-label">Budget remaining</div><div class="stat-val ${remaining<0?"red":"green"}">${fmt(remaining)}</div></div></div><div class="flex-b fz10 muted mb4"><span>Funding progress</span><span>${fundingPct.toFixed(0)}% of budget</span></div><div class="bar-track mb8"><div class="bar-fill" style="width:${fundingPct}%;background:var(--green)"></div></div><div class="flex-b fz10 muted mb4"><span>Budget utilisation (expenses + commitments)</span><span>${usedPct.toFixed(0)}%</span></div><div class="bar-track mb10"><div class="bar-fill" style="width:${usedPct}%;background:${usedPct>=100?"var(--red)":"var(--accent)"}"></div></div><div class="grid2 mb12"><div><span class="edit-label">Status</span><select class="inp" onchange="setProjectStatus('${selected.id}',this.value)">${["active","paused","completed","cancelled"].map(s=>`<option value="${s}" ${selected.status===s?"selected":""}>${projectStatusLabel(s)}</option>`).join("")}</select></div><div><span class="edit-label">Report period</span><input class="inp" type="month" value="${projectPeriod==="all"?"":projectPeriod}" onchange="projectPeriod=this.value||'all';render()"><button class="btn btn-g btn-sm mt4" onclick="projectPeriod='all';render()">All time</button></div></div><div class="grid2 mb10"><select class="inp" onchange="projectCategory=this.value;render()"><option value="all">All categories</option>${allEC().map(c=>`<option value="${esc(c)}" ${projectCategory===c?"selected":""}>${esc(c)}</option>`).join("")}</select><select class="inp" onchange="projectAccount=this.value;render()"><option value="all">All accounts</option>${accounts.map(a=>`<option value="${esc(a.id)}" ${projectAccount===a.id?"selected":""}>${esc(a.name)}</option>`).join("")}</select></div><div class="fz11 fw7 mb6">Project expenses (${matching.length})</div>${txRows}</div><div class="card"><div class="fz12 fw7 mb8">Outstanding commitments</div>${commitmentRows}<div class="divider"></div><div class="fz11 fw7 mb6">Record a commitment</div><div style="display:grid;gap:7px"><input class="inp" id="commitDescription" placeholder="What is committed?"><input class="inp" id="commitAmount" type="number" min="0.01" placeholder="Amount (${esc(currency.symbol)})"><input class="inp" id="commitDue" type="date"><button class="btn btn-p" onclick="addProjectCommitment('${selected.id}')">Add commitment</button></div><div class="fz9 muted mt6">Record the actual expense separately as a transaction linked to this project.</div></div>`;
   }
-  $("main").innerHTML=`<div class="flex-b mb10"><div><div class="fz16 fw8">Projects</div><div class="fz10 muted">Track budgets, commitments and linked expenses.</div></div><button class="btn btn-p btn-sm" onclick="editingProjectId='new';render()">+ New project</button></div>${form}<div class="grid2">${cards||`<div class="card tac muted">No projects yet. Create one to start tracking project costs.</div>`}</div>${detail}`;
+  $("main").innerHTML=`<div class="flex-b mb10"><div><div class="fz16 fw8">Projects</div><div class="fz10 muted">Track budgets, commitments and linked expenses.</div></div><button class="btn btn-p btn-sm" onclick="editingProjectId='new';render()">+ New project</button></div>${form}<div class="grid2">${cards||`<div class="empty-state" style="grid-column:1/-1"><div class="empty-ic">&#128188;</div><div class="fz14 fw7 mb4">No projects yet</div><div class="fz11 muted mb12">Group expenses under a project — a renovation, an event, a trip — and track them against its budget.</div><button class="btn btn-p btn-sm" onclick="editingProjectId='new';render()">+ Create a project</button></div>`}</div>${detail}`;
 }
 
 function render(){
@@ -3036,7 +3098,7 @@ function txListRow(t,selectModeOn){
 }
 function rTx(f,inc,exp){
   const oldBar=document.getElementById("selectBar");if(oldBar)oldBar.remove();
-  const filterBarHTML=`<div class="flex g6 mb8 flex-w"><div style="position:relative;flex:1 1 120px"><span style="position:absolute;left:8px;top:10px;font-size:12px" class="muted">&#128269;</span><input class="inp" id="si" style="padding-left:28px;font-size:12px" placeholder="Search..." value="${esc(search)}" oninput="doS(this.value)"></div><select class="inp" style="width:90px;font-size:12px" onchange="fType=this.value;render()"><option value="all" ${fType==="all"?"selected":""}>All</option><option value="income" ${fType==="income"?"selected":""}>Income</option><option value="expense" ${fType==="expense"?"selected":""}>Expense</option><option value="transfer" ${fType==="transfer"?"selected":""}>Transfer</option></select><select class="inp" style="width:130px;font-size:12px" onchange="fCat=this.value;render()"><option value="all">All Categories</option>${allCats().map(c=>`<option value="${esc(c)}" ${fCat===c?"selected":""}>${esc(c)}</option>`).join("")}</select><select class="inp" style="width:100px;font-size:12px" onchange="fAcc=this.value;render()"><option value="all">All Accts</option>${accounts.map(a=>`<option value="${esc(a.id)}" ${fAcc===a.id?"selected":""}>${esc(a.name)}</option>`).join("")}</select></div>`;
+  const filterBarHTML=`<div class="tx-filters mb8"><div class="tx-search" style="position:relative"><span style="position:absolute;left:8px;top:10px;font-size:12px" class="muted">&#128269;</span><input class="inp" id="si" style="padding-left:28px;font-size:12px" placeholder="Search..." value="${esc(search)}" oninput="doS(this.value)"></div><select class="inp" style="font-size:12px" onchange="fType=this.value;render()"><option value="all" ${fType==="all"?"selected":""}>All</option><option value="income" ${fType==="income"?"selected":""}>Income</option><option value="expense" ${fType==="expense"?"selected":""}>Expense</option><option value="transfer" ${fType==="transfer"?"selected":""}>Transfer</option></select><select class="inp" style="font-size:12px" onchange="fCat=this.value;render()"><option value="all">All Categories</option>${allCats().map(c=>`<option value="${esc(c)}" ${fCat===c?"selected":""}>${esc(c)}</option>`).join("")}</select><select class="inp" style="font-size:12px" onchange="fAcc=this.value;render()"><option value="all">All Accts</option>${accounts.map(a=>`<option value="${esc(a.id)}" ${fAcc===a.id?"selected":""}>${esc(a.name)}</option>`).join("")}</select></div>`;
   const viewToggleHTML=`<div class="tab-row mb8" style="max-width:200px"><button class="tab-btn ${txViewMode==="list"?"active":""}" onclick="setTxViewMode('list')">&#9776; List</button><button class="tab-btn ${txViewMode==="calendar"?"active":""}" onclick="setTxViewMode('calendar')">&#128197; Calendar</button></div>`;
   if(txViewMode==="calendar"){
     $("main").innerHTML=ppHTML()+filterBarHTML+viewToggleHTML+calendarCardHTML()+calDayDetailHTML();
