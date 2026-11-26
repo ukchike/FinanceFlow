@@ -12,6 +12,7 @@ function app(rendering=false){
     window:{},document:{addEventListener(){},getElementById:element},
     localStorage:{getItem:k=>storage.get(k)||null,setItem:(k,v)=>storage.set(k,v)},
     alert(){},confirm:()=>true,prompt:(message,value)=>value,setTimeout:()=>0,clearTimeout(){}});
+  vm.runInContext(fs.readFileSync('financeflow-android/app/src/main/assets/money-tools.js','utf8'),context);
   vm.runInContext(source,context);
   vm.runInContext('save=()=>{};showToast=()=>{};checkBudgetAlerts=()=>{};applyTheme=()=>{};',context);
   if(!rendering)vm.runInContext('render=()=>{};',context);

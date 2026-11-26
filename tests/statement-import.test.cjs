@@ -57,7 +57,7 @@ function app({accept=true,promptValue=null}={}){
   const storage=new Map();
   const localStorage={get length(){return storage.size;},key:i=>[...storage.keys()][i],getItem:k=>storage.get(k)??null,setItem:(k,v)=>storage.set(k,String(v)),removeItem:k=>storage.delete(k)};
   const ctx=vm.createContext({crypto:require('node:crypto').webcrypto,TextEncoder,TextDecoder,prompt:()=>promptValue,localStorage,FinanceCore:core,StatementImport:S,window:{},document:{addEventListener(){},getElementById:el},console,Date,Math,Set,Intl,JSON,alert:m=>alerts.push(m),confirm:()=>accept,setTimeout:()=>0,clearTimeout(){}});
-  vm.runInContext(source,ctx);vm.runInContext('save=()=>{};render=()=>{};showToast=()=>{};showUndoToast=(label,undo)=>{window.testUndo=undo;};',ctx);
+  vm.runInContext(fs.readFileSync('financeflow-android/app/src/main/assets/money-tools.js','utf8'),ctx);vm.runInContext(source,ctx);vm.runInContext('save=()=>{};render=()=>{};showToast=()=>{};showUndoToast=(label,undo)=>{window.testUndo=undo;};',ctx);
   return code=>vm.runInContext(code,ctx);
 }
 test('application import confirmation, undo and repeat upload do not double balances',()=>{
@@ -174,7 +174,7 @@ test('navigation identifies current page and recommended layout keeps financial 
   const run=app();run(`V='transactions';renderNav();`);
   assert.ok(run(`$('bnav').innerHTML`).includes('aria-label="Transactions" aria-current="page"'));
   run(`homeLayout=['recent','balance'];hiddenHomeSections=['budget'];restoreDefaultHome();`);
-  assert.equal(run('homeLayout.slice(0,5).join(",")'),'balance,accounts,stats,budget,recent');
+  assert.equal(run('homeLayout.slice(0,6).join(",")'),'balance,pulse,accounts,stats,budget,recent');
   assert.equal(run('showNetworthChartHome'),false);assert.equal(run('hiddenHomeSections.join(",")'),'trend');
 });
 

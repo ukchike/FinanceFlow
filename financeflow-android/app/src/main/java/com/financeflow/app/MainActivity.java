@@ -473,6 +473,21 @@ public class MainActivity extends AppCompatActivity {
             });
         }
 
+        @JavascriptInterface
+        public void shareText(String text) {
+            if (TextUtils.isEmpty(text)) return;
+            runOnUiThread(() -> {
+                try {
+                    Intent send = new Intent(Intent.ACTION_SEND);
+                    send.setType("text/plain");
+                    send.putExtra(Intent.EXTRA_TEXT, text);
+                    suppressNextLock = true;
+                    startActivity(Intent.createChooser(send, "Share"));
+                } catch (Exception ignored) {
+                }
+            });
+        }
+
         // Hands off to the system browser via an intent — this does NOT need the app's own
         // INTERNET permission (the browser app does its own networking, not this WebView).
         @JavascriptInterface
