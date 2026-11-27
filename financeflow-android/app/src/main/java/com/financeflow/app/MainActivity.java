@@ -745,7 +745,22 @@ public class MainActivity extends AppCompatActivity {
          * when one last actually fired.
          */
         @JavascriptInterface
+        public void setReminderHours(int morning, int evening) {
+            getSharedPreferences(ReminderReceiver.PREFS, Context.MODE_PRIVATE).edit()
+                .putInt("morning_hour", Math.max(0, Math.min(23, morning)))
+                .putInt("evening_hour", Math.max(0, Math.min(23, evening))).apply();
+            ReminderReceiver.loadHours(MainActivity.this);
+            boolean enabled = getSharedPreferences(ReminderReceiver.PREFS, Context.MODE_PRIVATE)
+                .getBoolean(ReminderReceiver.KEY_ENABLED, false);
+            if (enabled) {
+                ReminderReceiver.cancelAll(MainActivity.this);
+                ReminderReceiver.scheduleAll(MainActivity.this);
+            }
+        }
+
+        @JavascriptInterface
         public String reminderStatus() {
+            ReminderReceiver.loadHours(MainActivity.this);
             JSONObject o = new JSONObject();
             try {
                 o.put("notifications", NotificationManagerCompat.from(MainActivity.this).areNotificationsEnabled());
@@ -878,6 +893,11 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onPause() {
         super.onPause();
+        // WebView doesn't reliably emit visibilitychange when the app is backgrounded, so tell the
+        // page directly (used for the "new since last visit" marker and the lock grace period).
+        if (pageLoaded && webView != null) {
+            webView.evaluateJavascript("if(typeof ffxOnPause==='function')ffxOnPause();", null);
+        }
         if (suppressNextLock) {
             // We're the ones navigating away (file picker, SAF save, a settings screen, an
             // external link) — don't count this as "left the app".

@@ -537,6 +537,28 @@ button.card{color:var(--text);font-family:inherit;font-size:inherit;display:bloc
 .app-name{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .tx-count{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .ffx-custbar{background:rgba(var(--accent-rgb),.12);border:1px solid rgba(var(--accent-rgb),.35);border-radius:14px;padding:8px 8px 8px 14px}
+.ffx-hint{font-size:11px;color:var(--muted);padding:6px 2px 0}
+.ffx-bcard.over{border-color:rgba(239,68,68,.35)}.ffx-bcard.ahead{border-color:rgba(245,158,11,.35)}
+.ffx-bt{position:relative;height:8px;overflow:visible}
+.ffx-tick{position:absolute;top:-3px;bottom:-3px;width:2px;background:var(--text);opacity:.55;border-radius:1px}
+.ffx-limit{border:none;background:none;color:var(--text);font:inherit;font-size:12px;font-weight:800;cursor:pointer;padding:4px 6px;border-radius:8px}
+.ffx-limit:active{background:var(--active)}
+.ffx-bsum.over{border-color:rgba(239,68,68,.4)}.ffx-bsum.ahead{border-color:rgba(245,158,11,.4)}
+.ffx-hchip.bad.on{border-color:var(--red);background:rgba(239,68,68,.12);color:var(--red)}.ffx-hchip.warnc.on{border-color:var(--warn);background:rgba(245,158,11,.12);color:var(--warn)}
+.ffx-bpill{display:inline-block;font-size:9px;font-weight:700;border-radius:8px;padding:1px 6px;margin-left:6px;background:var(--active);color:var(--muted);vertical-align:middle}
+.ffx-bpill.over{background:rgba(239,68,68,.15);color:var(--red)}.ffx-bpill.ahead{background:rgba(245,158,11,.15);color:var(--warn)}
+.ffx-bsum .ffx-hchips{flex-wrap:wrap}
+.ffx-flow{display:flex;height:16px;border-radius:8px;overflow:hidden;gap:2px}.ffx-flow div{min-width:2px}
+.ffx-hchip.saved{border-color:rgba(245,158,11,.5);color:var(--warn)}
+.ffx-dupbar{display:flex;align-items:center;justify-content:space-between;gap:8px;background:rgba(245,158,11,.12);border:1px solid rgba(245,158,11,.4);border-radius:12px;padding:8px 10px;margin:8px 0;font-size:11px}
+.ffx-newdot{display:inline-block;font-size:8.5px;font-weight:800;color:#fff;background:var(--accent);border-radius:6px;padding:1px 5px;margin-left:4px;vertical-align:middle}
+.ffx-ms{display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--border)}
+.ffx-ms:last-child{border-bottom:none}
+.ffx-ms-box{width:24px;height:24px;border-radius:8px;border:2px solid var(--border);background:none;color:#fff;font-size:13px;line-height:1;cursor:pointer;flex-shrink:0;padding:0}
+.ffx-ms.done .ffx-ms-box{background:var(--green);border-color:var(--green)}.ffx-ms.done .ffx-ms-t{text-decoration:line-through;color:var(--muted)}
+.ffx-thumbs{display:flex;gap:6px;overflow-x:auto;padding:4px 0}
+.ffx-thumbs img{width:64px;height:64px;object-fit:cover;border-radius:10px;border:1px solid var(--border);flex-shrink:0;cursor:pointer}
+.ffx-tplrow{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px}
 </style>
 </head>
 <body>
@@ -796,11 +818,11 @@ function initializeFinancialState(){
   budgets.forEach(b=>{if(!b.rolloverStart){b.rolloverStart=getRangeFor(b.period||"month",new Date()).startStr;b.rolloverPeriod=b.period||"month";}});
 }
 
-const fmt=a=>privOn()?currency.symbol+"•••••":currency.symbol+Number(a||0).toLocaleString(currency.locale,{minimumFractionDigits:2,maximumFractionDigits:2});
+const fmt=a=>privOn()?currency.symbol+"•••••":currency.symbol+Number(a||0).toLocaleString(ffxNumLocale(currency.locale),{minimumFractionDigits:2,maximumFractionDigits:2});
 const fmtK=a=>{if(privOn())return currency.symbol+"•••";const n=Number(a||0);const s=currency.symbol;return n>=1e6?s+(n/1e6).toFixed(1)+"M":n>=1000?s+(n/1000).toFixed(0)+"k":s+n.toFixed(0);};
 // Format an amount in a SPECIFIC currency code (used for per-account balances) rather than the
 // app's global primary currency — e.g. a USD savings account shown alongside NGN accounts.
-function fmtCur(a,code){const c=CURRENCIES.find(x=>x.code===code)||currency;if(privOn())return c.symbol+"•••••";return c.symbol+Number(a||0).toLocaleString(c.locale,{minimumFractionDigits:2,maximumFractionDigits:2});}
+function fmtCur(a,code){const c=CURRENCIES.find(x=>x.code===code)||currency;if(privOn())return c.symbol+"•••••";return c.symbol+Number(a||0).toLocaleString(ffxNumLocale(c.locale),{minimumFractionDigits:2,maximumFractionDigits:2});}
 const uid=()=>Date.now().toString(36)+Math.random().toString(36).substr(2,5);
 // Local-calendar-day formatter — toISOString() converts to UTC first, which silently shifts
 // the date by a day for part of the day in timezones ahead of UTC (e.g. WAT, UTC+1).
@@ -1003,6 +1025,7 @@ const $=id=>document.getElementById(id);
 
 // ── PERSISTENCE ──
 function save(){
+  ffxDupMemo=null;
   appStorage.setItem("ffd_rules",JSON.stringify(importRules));
   appStorage.setItem("ffd_tx",JSON.stringify(txns));
   appStorage.setItem("ffd_bd",JSON.stringify(budgets));
@@ -1088,9 +1111,11 @@ function setCurrency(code){const found=CURRENCIES.find(c=>c.code===code);if(!fou
 // ── PERIOD ──
 function getRangeFor(mode,date){
   const d=new Date(date);let start,end;
-  if(mode==="week"){const day=d.getDay()||7;const mon=new Date(d.getFullYear(),d.getMonth(),d.getDate()-(day-1));const sun=new Date(mon.getFullYear(),mon.getMonth(),mon.getDate()+6);start=mon;end=sun;}
-  else if(mode==="month"){start=new Date(d.getFullYear(),d.getMonth(),1);end=new Date(d.getFullYear(),d.getMonth()+1,0);}
+  if(mode==="week"){const off=(d.getDay()-ffxWeekStart()+7)%7;const mon=new Date(d.getFullYear(),d.getMonth(),d.getDate()-off);const sun=new Date(mon.getFullYear(),mon.getMonth(),mon.getDate()+6);start=mon;end=sun;}
+  else if(mode==="month"){const D=ffxMonthStart();let y=d.getFullYear(),m=d.getMonth();if(d.getDate()<D)m--;start=new Date(y,m,D);end=new Date(y,m+1,D-1);}
   else if(mode==="quarter"){const q=Math.floor(d.getMonth()/3);start=new Date(d.getFullYear(),q*3,1);end=new Date(d.getFullYear(),q*3+3,0);}
+  else if(mode==="all"){const a=ffxAllBounds();start=a.start;end=a.end;}
+  else if(mode==="custom"){const c=ffxCustomRange();start=c.start;end=c.end;}
   else{start=new Date(d.getFullYear(),0,1);end=new Date(d.getFullYear(),11,31);}
   // startStr/endStr let callers compare against t.date (a "YYYY-MM-DD" string) directly instead
   // of building a Date from it — new Date("YYYY-MM-DD") parses as UTC midnight, which combined
@@ -1098,20 +1123,20 @@ function getRangeFor(mode,date){
   // last day of the range in any timezone ahead of UTC. Plain string comparison sidesteps that.
   return{start,end,startStr:toLocalISODate(start),endStr:toLocalISODate(end)};
 }
-function getLabelFor(mode,date){const d=new Date(date);if(mode==="week"){const r=getRangeFor(mode,d);const o={day:"numeric",month:"short"};return r.start.toLocaleDateString("en-NG",o)+" – "+r.end.toLocaleDateString("en-NG",o);}if(mode==="month")return MO[d.getMonth()]+" "+d.getFullYear();if(mode==="quarter")return"Q"+(Math.floor(d.getMonth()/3)+1)+" "+d.getFullYear();return""+d.getFullYear();}
-function navPeriod(dir,e){if(e)e.stopPropagation();const d=new Date(pDate);if(pMode==="week")d.setDate(d.getDate()+dir*7);else if(pMode==="month"){d.setDate(1);d.setMonth(d.getMonth()+dir);}else if(pMode==="quarter"){d.setDate(1);d.setMonth(d.getMonth()+dir*3);}else d.setFullYear(d.getFullYear()+dir);pDate=d;ppOpen=false;render();}
+function getLabelFor(mode,date){const d=new Date(date);if(mode==="all"||mode==="custom"||(mode==="month"&&ffxMonthStart()>1))return ffxPeriodLabel(mode,d);if(mode==="week"){const r=getRangeFor(mode,d);const o={day:"numeric",month:"short"};return r.start.toLocaleDateString("en-NG",o)+" – "+r.end.toLocaleDateString("en-NG",o);}if(mode==="month")return MO[d.getMonth()]+" "+d.getFullYear();if(mode==="quarter")return"Q"+(Math.floor(d.getMonth()/3)+1)+" "+d.getFullYear();return""+d.getFullYear();}
+function navPeriod(dir,e){if(e)e.stopPropagation();ffxNavPeriod(dir);}
 function setPMode(m){pMode=m;ppOpen=false;render();}
 function navPeriodB(dir,e){if(e)e.stopPropagation();const d=new Date(pDateB);if(pModeB==="week")d.setDate(d.getDate()+dir*7);else if(pModeB==="month"){d.setDate(1);d.setMonth(d.getMonth()+dir);}else if(pModeB==="quarter"){d.setDate(1);d.setMonth(d.getMonth()+dir*3);}else d.setFullYear(d.getFullYear()+dir);pDateB=d;ppBOpen=false;render();}
 function setPModeB(m){pModeB=m;ppBOpen=false;render();}
 function togglePP(e){e.stopPropagation();ppOpen=!ppOpen;if(ppOpen)ppBOpen=false;render();}
 function togglePPB(e){e.stopPropagation();ppBOpen=!ppBOpen;if(ppBOpen)ppOpen=false;render();}
 function closePP(){ppOpen=false;ppBOpen=false;}
-function toggleCmp(){cmpMode=!cmpMode;ppOpen=false;ppBOpen=false;render();}
+function toggleCmp(){if(!cmpMode&&(pMode==="all"||pMode==="custom")){pMode="month";pDate=new Date();}cmpMode=!cmpMode;ppOpen=false;ppBOpen=false;render();}
 function toggleCat(n){exCats[n]=!exCats[n];render();}
 
 function getCatMap(mode,date,type){const range=getRangeFor(mode,date);const cat={},sub={};txns.filter(t=>t.date>=range.startStr&&t.date<=range.endStr&&t.type===type).forEach(t=>{cat[t.category]=FinanceCore.round((cat[t.category]||0)+primaryAmount(t));if(t.subcategory){const k=t.category+"|||"+t.subcategory;sub[k]=FinanceCore.round((sub[k]||0)+primaryAmount(t));}});return{cat,sub};}
 function getSpent(mode,date,catName,subName){const range=getRangeFor(mode,date);return txns.filter(t=>t.date>=range.startStr&&t.date<=range.endStr&&t.type==="expense"&&t.category===catName&&(!subName||t.subcategory===subName)).reduce((s,t)=>FinanceCore.round(s+primaryAmount(t)),0);}
-function getF(){const range=getRangeFor(pMode,pDate);return txns.filter(t=>{if(t.date<range.startStr||t.date>range.endStr)return false;if(fType!=="all"&&t.type!==fType)return false;if(fCat!=="all"&&t.category!==fCat)return false;if(fAcc!=="all"){const touches=t.type==="transfer"?(t.fromAccountId===fAcc||t.toAccountId===fAcc):t.accountId===fAcc;if(!touches)return false;}if(search){const s=search.toLowerCase();const inTags=(t.tags||[]).some(tag=>tag.toLowerCase().includes(s));if(!inTags&&!(t.description||"").toLowerCase().includes(s)&&!(t.category||"").toLowerCase().includes(s)&&!(t.subcategory||"").toLowerCase().includes(s))return false;}return ffxHistMatch(t);});}
+function getF(){const range=getRangeFor(pMode,pDate);return txns.filter(t=>{if(!ffxHist.allTime&&(t.date<range.startStr||t.date>range.endStr))return false;if(fType!=="all"&&t.type!==fType)return false;if(fCat!=="all"&&t.category!==fCat)return false;if(fAcc!=="all"){const touches=t.type==="transfer"?(t.fromAccountId===fAcc||t.toAccountId===fAcc):t.accountId===fAcc;if(!touches)return false;}if(search){const s=search.toLowerCase();const inTags=(t.tags||[]).some(tag=>tag.toLowerCase().includes(s));if(!inTags&&!(t.description||"").toLowerCase().includes(s)&&!(t.category||"").toLowerCase().includes(s)&&!(t.subcategory||"").toLowerCase().includes(s))return false;}return ffxHistMatch(t);});}
 // Tags/labels: orthogonal to category — e.g. "work travel", "tax deductible" — for grouping
 // transactions a single category can't express. Predefined in Settings > Tags (userTags) and
 // picked per-transaction as chips (window._txTags/_eTags — see tagPickerHTML), rather than
@@ -1251,16 +1276,16 @@ function viewBudgetTx(cat){closePP();fCat=cat;fType="expense";fAcc="all";search=
 function getPeriodTx(){const range=getRangeFor(pMode,pDate);return txns.filter(t=>t.date>=range.startStr&&t.date<=range.endStr);}
 function projectStatusLabel(status){return({active:"Active",paused:"Paused",completed:"Completed",cancelled:"Cancelled"})[status]||"Active";}
 function setProjectStatus(id,status){const p=projects.find(x=>x.id===id);if(!p)return;p.status=status;p.updatedAt=new Date().toISOString();save();render();}
-function saveProjectForm(id){const name=$("projectName")?.value.trim(),budget=Number($("projectBudget")?.value),fundedAmount=Number($("projectFunded")?.value||0);if(!name)return alert("Enter a project name.");if(!Number.isFinite(budget)||budget<0)return alert("Enter a valid project budget.");if(!Number.isFinite(fundedAmount)||fundedAmount<0)return alert("Enter a valid funded amount.");const startDate=$("projectStart")?.value||toLocalISODate(new Date()),expectedEndDate=$("projectEnd")?.value||"";if(expectedEndDate&&expectedEndDate<startDate)return alert("Expected completion must be on or after the start date.");const status=$("projectStatus")?.value||"active",data={name,description:$("projectDescription")?.value.trim()||"",startDate,expectedEndDate,budget,fundedAmount,status,updatedAt:new Date().toISOString()};if(id==="new"){const project={id:uid(),...data,createdAt:new Date().toISOString()};projects.push(project);selectedProjectId=project.id;}else{const project=projects.find(x=>x.id===id);if(project)Object.assign(project,data);}editingProjectId=null;save();render();}
+function saveProjectForm(id){const name=$("projectName")?.value.trim(),budget=Number($("projectBudget")?.value),fundedAmount=Number($("projectFunded")?.value||0);if(!name)return alert("Enter a project name.");if(!Number.isFinite(budget)||budget<0)return alert("Enter a valid project budget.");if(!Number.isFinite(fundedAmount)||fundedAmount<0)return alert("Enter a valid funded amount.");const startDate=$("projectStart")?.value||toLocalISODate(new Date()),expectedEndDate=$("projectEnd")?.value||"";if(expectedEndDate&&expectedEndDate<startDate)return alert("Expected completion must be on or after the start date.");const status=$("projectStatus")?.value||"active",data={name,description:$("projectDescription")?.value.trim()||"",startDate,expectedEndDate,budget,fundedAmount,status,updatedAt:new Date().toISOString()};if(id==="new"){const project={id:uid(),...data,createdAt:new Date().toISOString()};projects.push(project);selectedProjectId=project.id;ffxProjectCreated(project);}else{const project=projects.find(x=>x.id===id);if(project)Object.assign(project,data);}editingProjectId=null;save();render();}
 function addProjectCommitment(projectId){const description=$("commitDescription")?.value.trim(),amount=Number($("commitAmount")?.value);if(!description)return alert("Enter a commitment description.");if(!Number.isFinite(amount)||amount<=0)return alert("Enter a commitment amount greater than zero.");commitments.push({id:uid(),projectId,description,amount,dueDate:$("commitDue")?.value||"",status:"open",createdAt:new Date().toISOString()});save();render();}
 function updateCommitment(id,status){const item=commitments.find(x=>x.id===id);if(!item)return;item.status=status;save();render();}
 function rProjects(){
   const selected=projects.find(p=>p.id===selectedProjectId)||projects[0];if(selected)selectedProjectId=selected.id;
   const formProject=editingProjectId&&editingProjectId!=="new"?projects.find(p=>p.id===editingProjectId):null;
-  const form=editingProjectId?`<div class="card"><div class="fz13 fw7 mb10">${editingProjectId==="new"?"New Project":"Edit Project"}</div><div style="display:grid;gap:8px"><input class="inp" id="projectName" placeholder="Project name" value="${esc(formProject?.name)}"><textarea class="inp" id="projectDescription" placeholder="Description" rows="2">${esc(formProject?.description)}</textarea><div class="grid2"><div><span class="edit-label">Start date</span><input class="inp" id="projectStart" type="date" value="${formProject?.startDate||toLocalISODate(new Date())}"></div><div><span class="edit-label">Expected completion</span><input class="inp" id="projectEnd" type="date" value="${formProject?.expectedEndDate||""}"></div></div><div class="grid2"><div><span class="edit-label">Budget (${esc(currency.symbol)})</span><input class="inp" id="projectBudget" type="number" min="0" value="${formProject?.budget??""}" placeholder="0"></div><div><span class="edit-label">Initial funded amount (${esc(currency.symbol)})</span><input class="inp" id="projectFunded" type="number" min="0" value="${formProject?.fundedAmount??0}"></div></div><div><span class="edit-label">Status</span><select class="inp" id="projectStatus">${["active","paused","completed","cancelled"].map(s=>`<option value="${s}" ${(formProject?.status||"active")==s?"selected":""}>${projectStatusLabel(s)}</option>`).join("")}</select></div></div><div class="flex g8 mt8"><button class="btn btn-p" onclick="saveProjectForm('${editingProjectId}')">Save Project</button><button class="btn btn-g" onclick="editingProjectId=null;render()">Cancel</button></div></div>`:"";
+  const form=editingProjectId?`<div class="card"><div class="fz13 fw7 mb10">${editingProjectId==="new"?"New Project":"Edit Project"}</div>${editingProjectId==="new"?ffxProjTemplateChips():""}<div style="display:grid;gap:8px"><input class="inp" id="projectName" placeholder="Project name" value="${esc(formProject?.name)}"><textarea class="inp" id="projectDescription" placeholder="Description" rows="2">${esc(formProject?.description)}</textarea><div class="grid2"><div><span class="edit-label">Start date</span><input class="inp" id="projectStart" type="date" value="${formProject?.startDate||toLocalISODate(new Date())}"></div><div><span class="edit-label">Expected completion</span><input class="inp" id="projectEnd" type="date" value="${formProject?.expectedEndDate||""}"></div></div><div class="grid2"><div><span class="edit-label">Budget (${esc(currency.symbol)})</span><input class="inp" id="projectBudget" type="number" min="0" value="${formProject?.budget??""}" placeholder="0"></div><div><span class="edit-label">Initial funded amount (${esc(currency.symbol)})</span><input class="inp" id="projectFunded" type="number" min="0" value="${formProject?.fundedAmount??0}"></div></div><div><span class="edit-label">Status</span><select class="inp" id="projectStatus">${["active","paused","completed","cancelled"].map(s=>`<option value="${s}" ${(formProject?.status||"active")==s?"selected":""}>${projectStatusLabel(s)}</option>`).join("")}</select></div></div><div class="flex g8 mt8"><button class="btn btn-p" onclick="saveProjectForm('${editingProjectId}')">Save Project</button><button class="btn btn-g" onclick="editingProjectId=null;render()">Cancel</button></div></div>`:"";
   const cards=projects.slice().sort((a,b)=>(a.status==="active"?0:1)-(b.status==="active"?0:1)).map(p=>ffxProjectCard(p,selected)).join("");
-  let detail="";if(selected){const allProjectTx=txns.filter(t=>t.projectId===selected.id&&t.type==="expense"),matching=allProjectTx.filter(t=>(projectPeriod==="all"||String(t.date||"").slice(0,7)===projectPeriod)&&(projectCategory==="all"||t.category===projectCategory)&&(projectAccount==="all"||t.accountId===projectAccount)),allSpend=allProjectTx.reduce((s,t)=>s+primaryAmount(t),0),monthSpend=matching.reduce((s,t)=>s+primaryAmount(t),0),openCommitments=commitments.filter(c=>c.projectId===selected.id&&c.status==="open"),committed=openCommitments.reduce((s,c)=>s+Number(c.amount||0),0),remaining=Number(selected.budget||0)-allSpend-committed,funded=Number(selected.fundedAmount||0),balance=funded-allSpend-committed,usedPct=Number(selected.budget)>0?Math.min((allSpend+committed)/Number(selected.budget)*100,100):0,fundingPct=Number(selected.budget)>0?Math.min(funded/Number(selected.budget)*100,100):0;const txRows=matching.slice().sort((a,b)=>String(b.date).localeCompare(String(a.date))).map(t=>`<div class="tx-row" onclick="showModal('edit','${t.id}')"><div style="flex:1"><div class="fz11 fw6">${esc(t.description||t.category)}</div><div class="fz9 muted">${esc(t.date)} · ${esc(t.category)} · ${esc(accounts.find(a=>a.id===t.accountId)?.name||"")}</div></div><span class="fz11 fw7 red">-${fmt(primaryAmount(t))}</span></div>`).join("")||`<div class="muted fz10 tac" style="padding:14px">No project expenses match these filters.</div>`;const commitmentRows=openCommitments.map(c=>`<div class="flex-b" style="padding:8px 0;border-bottom:1px solid var(--border)"><div><div class="fz10 fw6">${esc(c.description)}</div><div class="fz9 muted">${c.dueDate?"Due "+esc(c.dueDate):"No due date"}</div></div><div class="flex g6"><span class="fz10 fw7">${fmt(c.amount)}</span><button class="btn btn-g btn-sm" onclick="updateCommitment('${c.id}','paid')">Paid</button><button class="btn btn-g btn-sm" onclick="updateCommitment('${c.id}','cancelled')">Cancel</button></div></div>`).join("")||`<div class="fz10 muted">No outstanding commitments.</div>`;
-    detail=`<div class="card"><div class="flex-b mb8"><div><div class="fz14 fw8">${esc(selected.name)}</div><div class="fz10 muted">${esc(selected.startDate)}${selected.expectedEndDate?" · expected "+esc(selected.expectedEndDate):""}</div></div><button class="btn btn-g btn-sm" onclick="editingProjectId='${selected.id}';render()">Edit</button></div><div class="fz10 muted mb8">${esc(selected.description||"No description")}</div>${ffxProjectInsightsHTML(selected)}<div class="grid2 mb8"><div class="stat"><div class="stat-label">Selected-period expenses</div><div class="stat-val red">${fmt(monthSpend)}</div></div><div class="stat"><div class="stat-label">Cumulative expenses</div><div class="stat-val red">${fmt(allSpend)}</div></div><div class="stat"><div class="stat-label">Total funding</div><div class="stat-val green">${fmt(funded)}</div></div><div class="stat"><div class="stat-label">Outstanding commitments</div><div class="stat-val">${fmt(committed)}</div></div><div class="stat"><div class="stat-label">Project balance</div><div class="stat-val ${balance<0?"red":"green"}">${fmt(balance)}</div></div><div class="stat"><div class="stat-label">Budget remaining</div><div class="stat-val ${remaining<0?"red":"green"}">${fmt(remaining)}</div></div></div><div class="flex-b fz10 muted mb4"><span>Funding progress</span><span>${fundingPct.toFixed(0)}% of budget</span></div><div class="bar-track mb8"><div class="bar-fill" style="width:${fundingPct}%;background:var(--green)"></div></div><div class="flex-b fz10 muted mb4"><span>Budget utilisation (expenses + commitments)</span><span>${usedPct.toFixed(0)}%</span></div><div class="bar-track mb10"><div class="bar-fill" style="width:${usedPct}%;background:${usedPct>=100?"var(--red)":"var(--accent)"}"></div></div><div class="grid2 mb12"><div><span class="edit-label">Status</span><select class="inp" onchange="setProjectStatus('${selected.id}',this.value)">${["active","paused","completed","cancelled"].map(s=>`<option value="${s}" ${selected.status===s?"selected":""}>${projectStatusLabel(s)}</option>`).join("")}</select></div><div><span class="edit-label">Report period</span><input class="inp" type="month" value="${projectPeriod==="all"?"":projectPeriod}" onchange="projectPeriod=this.value||'all';render()"><button class="btn btn-g btn-sm mt4" onclick="projectPeriod='all';render()">All time</button></div></div><div class="grid2 mb10"><select class="inp" onchange="projectCategory=this.value;render()"><option value="all">All categories</option>${allEC().map(c=>`<option value="${esc(c)}" ${projectCategory===c?"selected":""}>${esc(c)}</option>`).join("")}</select><select class="inp" onchange="projectAccount=this.value;render()"><option value="all">All accounts</option>${accounts.map(a=>`<option value="${esc(a.id)}" ${projectAccount===a.id?"selected":""}>${esc(a.name)}</option>`).join("")}</select></div><div class="fz11 fw7 mb6">Project expenses (${matching.length})</div>${txRows}</div><div class="card"><div class="fz12 fw7 mb8">Outstanding commitments</div>${commitmentRows}<div class="divider"></div><div class="fz11 fw7 mb6">Record a commitment</div><div style="display:grid;gap:7px"><input class="inp" id="commitDescription" placeholder="What is committed?"><input class="inp" id="commitAmount" type="number" min="0.01" placeholder="Amount (${esc(currency.symbol)})"><input class="inp" id="commitDue" type="date"><button class="btn btn-p" onclick="addProjectCommitment('${selected.id}')">Add commitment</button></div><div class="fz9 muted mt6">Record the actual expense separately as a transaction linked to this project.</div></div>`;
+  let detail="";if(selected){const allProjectTx=txns.filter(t=>t.projectId===selected.id&&t.type==="expense"),matching=allProjectTx.filter(t=>(projectPeriod==="all"||String(t.date||"").slice(0,7)===projectPeriod)&&(projectCategory==="all"||t.category===projectCategory)&&(projectAccount==="all"||t.accountId===projectAccount)),allSpend=allProjectTx.reduce((s,t)=>s+primaryAmount(t),0),monthSpend=matching.reduce((s,t)=>s+primaryAmount(t),0),openCommitments=commitments.filter(c=>c.projectId===selected.id&&c.status==="open"),committed=openCommitments.reduce((s,c)=>s+Number(c.amount||0),0),remaining=Number(selected.budget||0)-allSpend-committed,funded=Number(selected.fundedAmount||0)+ffxLinkedFunding(selected.id),balance=funded-allSpend-committed,usedPct=Number(selected.budget)>0?Math.min((allSpend+committed)/Number(selected.budget)*100,100):0,fundingPct=Number(selected.budget)>0?Math.min(funded/Number(selected.budget)*100,100):0;const txRows=matching.slice().sort((a,b)=>String(b.date).localeCompare(String(a.date))).map(t=>`<div class="tx-row" onclick="showModal('edit','${t.id}')"><div style="flex:1"><div class="fz11 fw6">${esc(t.description||t.category)}</div><div class="fz9 muted">${esc(t.date)} · ${esc(t.category)} · ${esc(accounts.find(a=>a.id===t.accountId)?.name||"")}</div></div><span class="fz11 fw7 red">-${fmt(primaryAmount(t))}</span></div>`).join("")||`<div class="muted fz10 tac" style="padding:14px">No project expenses match these filters.</div>`;const commitmentRows=openCommitments.map(c=>`<div class="flex-b" style="padding:8px 0;border-bottom:1px solid var(--border)"><div><div class="fz10 fw6">${esc(c.description)}</div><div class="fz9 muted">${c.dueDate?"Due "+esc(c.dueDate):"No due date"}</div></div><div class="flex g6"><span class="fz10 fw7">${fmt(c.amount)}</span><button class="btn btn-g btn-sm" onclick="updateCommitment('${c.id}','paid')">Paid</button><button class="btn btn-g btn-sm" onclick="updateCommitment('${c.id}','cancelled')">Cancel</button></div></div>`).join("")||`<div class="fz10 muted">No outstanding commitments.</div>`;
+    detail=`<div class="card"><div class="flex-b mb8"><div><div class="fz14 fw8">${esc(selected.name)}</div><div class="fz10 muted">${esc(selected.startDate)}${selected.expectedEndDate?" · expected "+esc(selected.expectedEndDate):""}</div></div><button class="btn btn-g btn-sm" onclick="editingProjectId='${selected.id}';render()">Edit</button></div><div class="fz10 muted mb8">${esc(selected.description||"No description")}</div>${ffxProjectInsightsHTML(selected)}<div class="grid2 mb8"><div class="stat"><div class="stat-label">Selected-period expenses</div><div class="stat-val red">${fmt(monthSpend)}</div></div><div class="stat"><div class="stat-label">Cumulative expenses</div><div class="stat-val red">${fmt(allSpend)}</div></div><div class="stat"><div class="stat-label">Total funding</div><div class="stat-val green">${fmt(funded)}</div></div><div class="stat"><div class="stat-label">Outstanding commitments</div><div class="stat-val">${fmt(committed)}</div></div><div class="stat"><div class="stat-label">Project balance</div><div class="stat-val ${balance<0?"red":"green"}">${fmt(balance)}</div></div><div class="stat"><div class="stat-label">Budget remaining</div><div class="stat-val ${remaining<0?"red":"green"}">${fmt(remaining)}</div></div></div><div class="flex-b fz10 muted mb4"><span>Funding progress</span><span>${fundingPct.toFixed(0)}% of budget</span></div><div class="bar-track mb8"><div class="bar-fill" style="width:${fundingPct}%;background:var(--green)"></div></div><div class="flex-b fz10 muted mb4"><span>Budget utilisation (expenses + commitments)</span><span>${usedPct.toFixed(0)}%</span></div><div class="bar-track mb10"><div class="bar-fill" style="width:${usedPct}%;background:${usedPct>=100?"var(--red)":"var(--accent)"}"></div></div><div class="grid2 mb12"><div><span class="edit-label">Status</span><select class="inp" onchange="setProjectStatus('${selected.id}',this.value)">${["active","paused","completed","cancelled"].map(s=>`<option value="${s}" ${selected.status===s?"selected":""}>${projectStatusLabel(s)}</option>`).join("")}</select></div><div><span class="edit-label">Report period</span>${ffxProjectPeriodSelect(selected)}</div></div><div class="grid2 mb10"><select class="inp" onchange="projectCategory=this.value;render()"><option value="all">All categories</option>${allEC().map(c=>`<option value="${esc(c)}" ${projectCategory===c?"selected":""}>${esc(c)}</option>`).join("")}</select><select class="inp" onchange="projectAccount=this.value;render()"><option value="all">All accounts</option>${accounts.map(a=>`<option value="${esc(a.id)}" ${projectAccount===a.id?"selected":""}>${esc(a.name)}</option>`).join("")}</select></div><div class="fz11 fw7 mb6">Project expenses (${matching.length})</div>${txRows}</div><div class="card"><div class="fz12 fw7 mb8">Outstanding commitments</div>${commitmentRows}<div class="divider"></div><div class="fz11 fw7 mb6">Record a commitment</div><div style="display:grid;gap:7px"><input class="inp" id="commitDescription" placeholder="What is committed?"><input class="inp" id="commitAmount" type="number" min="0.01" placeholder="Amount (${esc(currency.symbol)})"><input class="inp" id="commitDue" type="date"><button class="btn btn-p" onclick="addProjectCommitment('${selected.id}')">Add commitment</button></div><div class="fz9 muted mt6">Record the actual expense separately as a transaction linked to this project.</div></div>`;
   }
   $("main").innerHTML=`<div class="flex-b mb10"><div><div class="fz16 fw8">Projects</div><div class="fz10 muted">Track budgets, commitments and linked expenses.</div></div><button class="btn btn-p btn-sm" onclick="editingProjectId='new';render()">+ New project</button></div>${form}${ffxProjectSummaryHTML()}<div class="grid2">${cards||`<div class="empty-state" style="grid-column:1/-1"><div class="empty-ic">&#128188;</div><div class="fz14 fw7 mb4">No projects yet</div><div class="fz11 muted mb12">Group expenses under a project — a renovation, an event, a trip — and track them against its budget.</div><button class="btn btn-p btn-sm" onclick="editingProjectId='new';render()">+ Create a project</button></div>`}</div>${detail}`;
 }
@@ -1506,7 +1531,7 @@ function categoryDonutSVG(catArr,total,centerTop,centerBottom){
   const arcs=segs.length?segs.map(s=>{
     const dash=Math.max(s.pct*circumference,0.01);
     const offset=-s.start*circumference;
-    return`<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${s.c}" stroke-width="${strokeW}" stroke-dasharray="${dash.toFixed(2)} ${(circumference-dash).toFixed(2)}" stroke-dashoffset="${offset.toFixed(2)}" transform="rotate(-90 ${cx} ${cy})"/>`;
+    return`<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${s.c}" stroke-width="${strokeW}" stroke-dasharray="${dash.toFixed(2)} ${(circumference-dash).toFixed(2)}" stroke-dashoffset="${offset.toFixed(2)}" transform="rotate(-90 ${cx} ${cy})" style="cursor:pointer" role="button" aria-label="${esc(s.name)}: show transactions" onclick="ffxViewCat('${escJs(s.name)}',statsType)"/>`;
   }).join(""):`<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="var(--border)" stroke-width="${strokeW}"/>`;
   // Only labels for slices with real breathing room (>=6%) — smaller ones would just collide;
   // the list below the chart still has every category regardless.
@@ -1516,7 +1541,7 @@ function categoryDonutSVG(catArr,total,centerTop,centerBottom){
     const lx=cx+lr*Math.cos(ang),ly=cy+lr*Math.sin(ang);
     const anchor=Math.cos(ang)>0.25?"start":Math.cos(ang)<-0.25?"end":"middle";
     const name=s.name.length>14?s.name.slice(0,13)+"…":s.name;
-    return`<text x="${lx.toFixed(1)}" y="${ly.toFixed(1)}" font-size="10.5" font-weight="700" text-anchor="${anchor}" dominant-baseline="middle" style="fill:${s.c}">${esc(name)} ${Math.round(s.pct*100)}%</text>`;
+    return`<text x="${lx.toFixed(1)}" y="${ly.toFixed(1)}" font-size="10.5" font-weight="700" text-anchor="${anchor}" dominant-baseline="middle" style="fill:${s.c};cursor:pointer" onclick="ffxViewCat('${escJs(s.name)}',statsType)">${esc(name)} ${Math.round(s.pct*100)}%</text>`;
   }).join("");
   const centerHTML=centerTop!==undefined?`<text x="${cx}" y="${cy-7}" font-size="11" text-anchor="middle" style="fill:var(--muted)">${esc(centerTop)}</text><text x="${cx}" y="${cy+15}" font-size="18" font-weight="800" text-anchor="middle" style="fill:var(--text)">${esc(centerBottom)}</text>`:"";
   return`<svg viewBox="-70 0 ${W+140} ${H}" style="width:100%;max-width:380px;display:block;margin:0 auto;overflow:visible" role="img" aria-label="Category breakdown chart">${arcs}${labels}${centerHTML}</svg>`;
@@ -1532,12 +1557,7 @@ function buildInsights(f,inc,exp){
   if(top&&exp>0)insights.push({icon:"&#128269;",color:"#3b82f6",text:`${top[0]} is your biggest expense at ${(top[1]/exp*100).toFixed(0)}% of total spend (${fmt(top[1])}).`});
   const overBuds=budgets.filter(b=>budgetBaseLimit(b)>0&&budgetSpent(b,b.period||"month",pDate)>budgetEffLimit(b,b.period||"month",pDate));
   if(overBuds.length)insights.push({icon:"&#9888;",color:"#ef4444",text:`Over budget in ${overBuds.length} categor${overBuds.length>1?"ies":"y"}: ${overBuds.map(b=>b.cat).join(", ")}.`});
-  const prevDate=new Date(pDate);
-  if(pMode==="week")prevDate.setDate(prevDate.getDate()-7);
-  else if(pMode==="month"){prevDate.setDate(1);prevDate.setMonth(prevDate.getMonth()-1);}
-  else if(pMode==="quarter"){prevDate.setDate(1);prevDate.setMonth(prevDate.getMonth()-3);}
-  else prevDate.setFullYear(prevDate.getFullYear()-1);
-  const prevRange=getRangeFor(pMode,prevDate);
+  const prevRange=ffxPrevRange(pMode,pDate)||{startStr:"9999-12-31",endStr:"0000-01-01"};
   const prevExp=txns.filter(t=>t.type==="expense"&&t.date>=prevRange.startStr&&t.date<=prevRange.endStr).reduce((s,t)=>FinanceCore.round(s+primaryAmount(t)),0);
   if(prevExp>0&&exp>0){
     const diffPct=(exp-prevExp)/prevExp*100;
@@ -1570,7 +1590,7 @@ function rDash(f,inc,exp){
   const budgetSummary=homeBudgets.length>0?`<div class="mb10" style="padding-bottom:10px;border-bottom:1px solid var(--border)"><div class="flex-b fz10"><span class="fw7">Total budgets</span><span style="color:${budgetedOver?"var(--red)":"var(--muted)"}">${fmtK(budgetedSpent)} / ${fmtK(budgetedTotal)}</span></div><div class="bar-track" style="height:8px;margin-top:4px"><div class="bar-fill" style="width:${budgetedPct}%;background:${budgetBarColor(budgetedPct,budgetedOver)};height:100%"></div></div><div class="fz9 muted mt2">${budgetedPct.toFixed(0)}% used${budgetedOver?" — over":""}${mixedPeriods?" · each at its own reset period":""}</div></div>`:"";
   const budH=homeBudgets.map(({b,effLimit,bp})=>{
     const sp=budgetSpent(b,bp,pDate);const over=sp>effLimit;
-    const pct=effLimit>0?Math.min((sp/effLimit)*100,100):(sp>0?100:0);const c=budgetBarColor(pct,over);
+    const pct=effLimit>0?Math.min((sp/effLimit)*100,100):(sp>0?100:0);const c=ffxBudgetColor(bp,pDate,pct,over);
     const rollup=!(b.limit>0);
     return`<div class="mb8"><div class="flex-b fz10"><span class="fw6">${esc(b.cat)} <span class="fz9 muted">(${PERIOD_LABELS[bp]}${rollup?" · subs":""})</span></span><span style="color:${over?"var(--red)":"var(--muted)"}">${fmtK(sp)}/${fmtK(effLimit)}</span></div><div class="bar-track"><div class="bar-fill" style="width:${pct}%;background:${c}"></div></div></div>`;}).join("");
   const recent=[...f].sort((a,b)=>b.date.localeCompare(a.date)).slice(0,5);
@@ -1657,7 +1677,7 @@ function rStats(inc,exp){
     $("main").innerHTML=tabs+cmpPickerHdr()+`<div class="card" style="padding:12px"><div class="flex-b mb6"><span class="fz11 fw7">Category Comparison</span><span class="fz9 muted">${lA} vs ${lB}</span></div><div class="flex-b fz10 mb6" style="padding:0 6px;border-bottom:1px solid var(--border);padding-bottom:6px"><span class="muted fw6">TOTAL</span><span style="color:var(--accent);font-weight:700">${fmt(totalA)}</span><span class="muted">${fmt(totalB)}</span><span>${chgBadge(totalA,totalB,isExp)}</span></div><table class="cmp-tbl"><thead><tr><th>Category</th><th style="color:var(--accent)">${lA}</th><th class="muted">${lB}</th><th>&#916;</th></tr></thead><tbody>${names.map(name=>{const vA=mA.cat[name]||0,vB=mB.cat[name]||0;const c=clr(name);const pct=totalA&&vA?(vA/totalA*100).toFixed(0):0;const isE=exCats[name];const subNames=[...new Set([...Object.keys(mA.sub).filter(k=>k.startsWith(name+"|||")),...Object.keys(mB.sub).filter(k=>k.startsWith(name+"|||"))].map(k=>k.split("|||")[1]))];return`<tr style="cursor:${subNames.length?"pointer":"default"}" onclick="${subNames.length?`toggleCat('${escJs(name)}')`:""}""><td><div class="flex g6"><div class="cat-dot" style="background:${c}"></div><span style="color:${c};font-size:11px">${esc(name)}</span><span class="fz9 muted">${pct}%</span>${subNames.length?`<span class="fz9 muted">${isE?"&#9650;":"&#9660;"}</span>`:""}</div></td><td class="fw7" style="color:var(--accent)">${fmtK(vA)}</td><td class="muted">${fmtK(vB)}</td><td>${chgBadge(vA,vB,isExp)}</td></tr>${isE?subNames.map(sn=>{const sA=mA.sub[name+"|||"+sn]||0,sB=mB.sub[name+"|||"+sn]||0;return`<tr style="background:var(--bg);cursor:pointer" onclick="viewSubTx('${escJs(name)}','${escJs(sn)}')"><td style="padding-left:22px;color:var(--muted);font-size:10px">${esc(sn)}</td><td class="fz10" style="color:var(--accent)">${fmtK(sA)}</td><td class="fz10 muted">${fmtK(sB)}</td><td>${chgBadge(sA,sB,isExp)}</td></tr>`;}).join(""):""}`;}).join("")}</tbody></table></div>`;
   }else{
     const catArr=Object.entries(mA.cat).sort((a,b)=>b[1]-a[1]);
-    $("main").innerHTML=ppHTML()+tabs+ffxStatsSummaryHTML(type)+`<div class="card anim-card"><div class="anim-pop">${categoryDonutSVG(catArr,totalA,isExp?"Expenses":"Income",fmt(totalA))}</div>${catArr.length?catArr.map(([name,val],ci)=>{const pct=totalA?(val/totalA*100).toFixed(1):0;const c=clr(name);const isE=exCats[name];const subs=Object.entries(mA.sub).filter(([k])=>k.startsWith(name+"|||")).map(([k,v])=>({name:k.split("|||")[1],val:v})).sort((a,b)=>b.val-a.val);return`<div class="exp-cat anim-card" style="animation-delay:${ci*40}ms"><div class="exp-cat-hdr" onclick="toggleCat('${escJs(name)}')"><div class="cat-dot" style="background:${c}"></div><span class="pct-badge" style="background:${c}33;color:${c}">${Math.round(pct)}%</span><span class="fz12 fw6" style="flex:1">${esc(name)}</span><span class="fz12 fw7">${fmt(val)}</span><span class="fz10 muted">${isE?"&#9650;":"&#9660;"}</span></div>${isE?`<div class="exp-cat-subs"><button class="ffx-viewcat" onclick="event.stopPropagation();ffxViewCat('${escJs(name)}','${type}')">View all ${esc(name)} transactions ›</button><div class="fz9 muted mb4">Last 8 months</div>${catMonthlyTrendSVG(name)}${subs.length?subs.map(s=>{const subKey=name+"|||"+s.name;const subOpen=exCats[subKey];return`<div><div class="exp-sub-row" style="cursor:pointer" onclick="event.stopPropagation();toggleCat('${escJs(subKey)}')"><span class="muted">${esc(s.name)} ${subOpen?"&#9650;":"&#9660;"}</span><span class="flex g6"><span class="fw6">${fmt(s.val)}</span><span style="cursor:pointer;color:var(--accent)" onclick="event.stopPropagation();viewSubTx('${escJs(name)}','${escJs(s.name)}')" title="View transactions">&#8250;</span></span></div>${subOpen?`<div style="padding:0 0 8px 12px"><div class="fz9 muted mb4">${esc(s.name)} — last 8 months</div>${catMonthlyTrendSVG(name,s.name)}</div>`:""}</div>`;}).join(""):""}</div>`:""}</div>`;}).join(""):'<div class="muted fz12 tac" style="padding:20px">No data this period</div>'}</div>`+ffxStatsExtrasHTML(type);
+    $("main").innerHTML=ppHTML()+tabs+ffxStatsSummaryHTML(type)+`<div class="card anim-card"><div class="anim-pop">${categoryDonutSVG(catArr,totalA,isExp?"Expenses":"Income",fmt(totalA))}</div>${catArr.length?catArr.map(([name,val],ci)=>{const pct=totalA?(val/totalA*100).toFixed(1):0;const c=clr(name);const isE=exCats[name];const subs=Object.entries(mA.sub).filter(([k])=>k.startsWith(name+"|||")).map(([k,v])=>({name:k.split("|||")[1],val:v})).sort((a,b)=>b.val-a.val);return`<div class="exp-cat anim-card" style="animation-delay:${ci*40}ms"><div class="exp-cat-hdr" onclick="toggleCat('${escJs(name)}')"><div class="cat-dot" style="background:${c}"></div><span class="pct-badge" style="background:${c}33;color:${c}">${Math.round(pct)}%</span><span class="fz12 fw6" style="flex:1">${esc(name)}${ffxBudgetPill(name)}</span><span class="fz12 fw7">${fmt(val)}</span><span class="fz10 muted">${isE?"&#9650;":"&#9660;"}</span></div>${isE?`<div class="exp-cat-subs"><button class="ffx-viewcat" onclick="event.stopPropagation();ffxViewCat('${escJs(name)}','${type}')">View all ${esc(name)} transactions ›</button><div class="fz9 muted mb4">Last 8 months</div>${catMonthlyTrendSVG(name)}${subs.length?subs.map(s=>{const subKey=name+"|||"+s.name;const subOpen=exCats[subKey];return`<div><div class="exp-sub-row" style="cursor:pointer" onclick="event.stopPropagation();toggleCat('${escJs(subKey)}')"><span class="muted">${esc(s.name)} ${subOpen?"&#9650;":"&#9660;"}</span><span class="flex g6"><span class="fw6">${fmt(s.val)}</span><span style="cursor:pointer;color:var(--accent)" onclick="event.stopPropagation();viewSubTx('${escJs(name)}','${escJs(s.name)}')" title="View transactions">&#8250;</span></span></div>${subOpen?`<div style="padding:0 0 8px 12px"><div class="fz9 muted mb4">${esc(s.name)} — last 8 months</div>${catMonthlyTrendSVG(name,s.name)}</div>`:""}</div>`;}).join(""):""}</div>`:""}</div>`;}).join(""):'<div class="muted fz12 tac" style="padding:20px">No data this period</div>'}</div>`+ffxStatsExtrasHTML(type);
   }
 }
 
@@ -1722,7 +1742,7 @@ function rBud(f){
   if(cmpMode){
     $("main").innerHTML=hdr+cmpPickerHdr()+budgets.map(b=>{const bp=b.period||"month";const hasCatLimit=b.limit>0;const subTotal=(b.subs||[]).reduce((s,x)=>s+(x.limit||0),0);const effLimit=budgetEffLimit(b,bp,pDate),effLimitB=budgetEffLimit(b,bp,pDateB);const spA=budgetSpent(b,bp,pDate),spB=budgetSpent(b,bp,pDateB);const bLA=getLabelFor(bp,pDate),bLB=getLabelFor(bp,pDateB);const pA=effLimit>0?Math.min((spA/effLimit)*100,100):0,pB=effLimitB>0?Math.min((spB/effLimitB)*100,100):0;const cA=budgetBaseLimit(b)>0&&spA>effLimit?"var(--red)":pA>80?"var(--warn)":"var(--accent)";const cB=budgetBaseLimit(b)>0&&spB>effLimitB?"var(--red)":pB>80?"var(--warn)":"var(--green)";const isE=exCats["b_"+b.id];const hs=b.subs&&b.subs.length>0;return`<div class="card" style="padding:12px;margin-bottom:10px"><div class="flex-b mb6" style="cursor:pointer" onclick="toggleCat('b_${b.id}')"><div class="flex g6"><div class="cat-dot" style="background:${clr(b.cat)}"></div><span class="fw7 fz12">${esc(b.cat)}</span><span class="rec-badge">${PERIOD_LABELS[bp]}</span>${hs?`<span class="fz10 muted">${isE?"&#9650;":"&#9660;"}</span>`:""}</div><span class="fz10 muted">${budgetBaseLimit(b)>0?"Limit: "+fmtK(effLimit)+(hasCatLimit?"":" (subs total)"):"No limit set"}</span></div><table class="cmp-tbl mb8"><thead><tr><th>Period</th><th>Spent</th><th>%</th><th>&#916;</th></tr></thead><tbody><tr><td style="color:var(--accent);font-size:10px">${bLA}</td><td class="fw7" style="color:${cA}">${fmtK(spA)}</td><td class="fz10 muted">${pA.toFixed(0)}%</td><td>${chgBadge(spA,spB,true)}</td></tr><tr><td class="muted fz10">${bLB}</td><td class="fw7" style="color:${cB}">${fmtK(spB)}</td><td class="fz10 muted">${pB.toFixed(0)}%</td><td></td></tr></tbody></table><div style="height:7px;background:var(--border);border-radius:4px;overflow:hidden;margin-bottom:3px"><div style="height:100%;width:${pA}%;background:${cA};border-radius:4px"></div></div><div style="height:7px;background:var(--border);border-radius:4px;overflow:hidden"><div style="height:100%;width:${pB}%;background:${cB};border-radius:4px"></div></div><div class="flex-b fz9 mt4"><span style="color:var(--accent)">&#9632; ${bLA}</span><span class="muted">&#9632; ${bLB}</span></div>${isE&&hs?`<div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--border)">${b.subs.map(s=>{const ssA=getSpent(bp,pDate,b.cat,s.name),ssB=getSpent(bp,pDateB,b.cat,s.name);const spA2=s.limit>0?Math.min((ssA/s.limit)*100,100):0,spB2=s.limit>0?Math.min((ssB/s.limit)*100,100):0;return`<div class="mb8"><div class="flex-b fz10 mb3"><span class="muted">${esc(s.name)}</span>${chgBadge(ssA,ssB,true)}</div><div class="flex-b fz9 mb2"><span style="color:var(--accent)">${fmtK(ssA)}</span><span class="muted">${fmtK(ssB)}</span></div><div style="height:5px;background:var(--border);border-radius:3px;overflow:hidden;margin-bottom:2px"><div style="height:100%;width:${spA2}%;background:var(--accent);border-radius:3px"></div></div><div style="height:5px;background:var(--border);border-radius:3px;overflow:hidden"><div style="height:100%;width:${spB2}%;background:var(--green);border-radius:3px"></div></div></div>`;}).join("")}</div>`:""}</div>`;}).join("")||`<div class="card tac" style="padding:28px"><div style="font-size:32px;margin-bottom:8px">&#127919;</div><div class="fz13 fw6 mb4">No budgets yet</div><button class="btn btn-p btn-sm" onclick="toggleBudgetManage()">+ Create Budget</button></div>`;
   }else{
-    $("main").innerHTML=ppHTML()+hdr+ffxZeroBasedHTML()+(budgets.length?budgets.map(b=>{const bp=b.period||"month";const spent=budgetSpent(b,bp,pDate);const subTotal=(b.subs||[]).reduce((s,x)=>s+(x.limit||0),0);const hasCatLimit=b.limit>0;const isRollup=!hasCatLimit&&subTotal>0;const effLimit=budgetEffLimit(b,bp,pDate);const pct=effLimit>0?Math.min((spent/effLimit)*100,100):0;const over=budgetBaseLimit(b)>0&&spent>effLimit;const c=budgetBarColor(pct,over);const isE=exCats["b_"+b.id];const hs=b.subs&&b.subs.length>0;return`<div class="card anim-card" style="border-color:${over?"rgba(239,68,68,.25)":"var(--border)"};animation-delay:${budgets.indexOf(b)*45}ms"><div class="flex-b" style="cursor:pointer" onclick="toggleCat('b_${b.id}')"><div class="flex g6"><div class="cat-dot" style="background:${clr(b.cat)}"></div><span class="fw7 fz13">${esc(b.cat)}</span><span class="rec-badge">${PERIOD_LABELS[bp]}</span>${b.rollover?`<span class="rec-badge" title="Carry starts ${esc(b.rolloverStart||toLocalISODate(new Date()))}">&#8635; ${esc(b.rolloverStart||"")}</span>`:""}<span class="fz10 muted">${hs?isE?"&#9650;":"&#9660;":""}</span></div><div class="flex g8"><button class="btn btn-g btn-sm" style="padding:4px 8px" onclick="event.stopPropagation();viewBudgetTx('${escJs(b.cat)}')" title="View transactions">&#128269;</button><span class="fz12 fw7">${budgetBaseLimit(b)>0?fmt(effLimit):"—"}</span></div></div>${budgetBaseLimit(b)>0?`<div class="flex-b fz10 muted mt4 mb4"><span style="color:${c}">${fmt(spent)} spent</span><span>${pct.toFixed(0)}% · ${over?"Over "+fmtK(spent-effLimit):fmtK(effLimit-spent)+" left"}</span></div><div class="bar-track" style="height:8px"><div class="bar-fill" style="width:${pct}%;background:${c};height:100%"></div></div>${isRollup?`<div class="fz9 muted mt4">Total of ${b.subs.length} subcategory limit${b.subs.length>1?"s":""} below</div>`:""}`:`<div class="fz10 muted mt4 mb4">${fmt(spent)} spent · no limit set</div>`}${isE&&hs?`<div class="exp-cat-subs" style="margin-top:10px;padding:8px 0 0 0;border-top:1px solid var(--border)">${b.subs.map(s=>{const ss=getSpent(bp,pDate,b.cat,s.name);const sp=s.limit>0?Math.min((ss/s.limit)*100,100):0;const so=s.limit>0&&ss>s.limit;const sc=budgetBarColor(sp,so);return`<div class="mb8"><div class="flex-b fz10"><span class="muted">${esc(s.name)}</span><span><span style="color:${sc}">${fmtK(ss)}</span> / ${fmtK(s.limit)}</span></div><div class="bar-track"><div class="bar-fill" style="width:${sp}%;background:${sc}"></div></div></div>`;}).join("")}</div>`:""}</div>`;}).join(""):`<div class="card tac" style="padding:28px"><div style="font-size:32px;margin-bottom:8px">&#127919;</div><div class="fz13 fw6 mb4">No budgets yet</div><div class="fz11 muted mb12">Set spending limits to stay on track</div><button class="btn btn-p btn-sm" onclick="toggleBudgetManage()">+ Create Budget</button></div>`);
+    $("main").innerHTML=ppHTML()+hdr+ffxZeroBasedHTML()+ffxBudgetsBodyHTML();
   }
 }
 
@@ -1773,6 +1793,7 @@ const SETTINGS_ITEMS=[
   {id:"budgets",icon:"&#127919;",label:"Budgets"},
   {id:"goals",icon:"&#127942;",label:"Goals"},
   {id:"tags",icon:"&#127991;",label:"Tags"},
+  {id:"import",icon:"&#128229;",label:"Import from another app"},
   {id:"rules",icon:"&#128221;",label:"Statement category rules"},
   {id:"categories",icon:"&#127991;&#65039;",label:"Categories"},
   {id:"appearance",icon:"&#127912;",label:"Appearance"},
@@ -1972,7 +1993,7 @@ ${bankAlertsHTML(pending)}
   if(settingsTab==="security"){
     const hasBio=window.Android&&window.Android.hasBiometric();
     const hasNotif=window.Android&&window.Android.hasNotificationPermission&&window.Android.hasNotificationPermission();
-    body=`<div class="st-section">${uxPrivacyHTML()}
+    body=`<div class="st-section">${uxPrivacyHTML()}${ffxLockGraceHTML()}
       <span class="st-label">Permissions</span>
       <div style="background:var(--bg);border-radius:10px;padding:4px 12px;border:1px solid var(--border);margin-bottom:12px">
         <div class="perm-row"><div class="flex g6"><div class="perm-dot" style="background:${hasNotif?"var(--green)":"var(--red)"}"></div><span class="fz11 fw6">Notifications (budget alerts)</span></div>${window.Android?(hasNotif?`<span class="fz10 green fw6">Granted</span>`:`<button class="btn btn-sm btn-p" onclick="requestNotifPerm()">Enable</button>`):`<span class="fz10 muted">N/A</span>`}</div>
@@ -2167,7 +2188,7 @@ function reminderDiagnosticsHTML(){
 function syncUpcomingBills(){
   if(!(window.Android&&window.Android.syncUpcomingBills))return;
   const today=toLocalISODate(new Date());
-  const soon=new Date();soon.setDate(soon.getDate()+3);
+  const soon=new Date();soon.setDate(soon.getDate()+ffxBillLead());
   const soonStr=toLocalISODate(soon);
   const due=scheduledPayments.filter(p=>p.status==="pending"&&p.date<=soonStr).map(p=>({desc:p.description||p.category,amount:primaryAmount(p),type:p.type,due:p.date}));
   recurring.filter(r=>r.active).forEach(r=>{
@@ -2295,6 +2316,7 @@ function hideLock(){const ls=$("lockScreen");if(ls)ls.style.display="none";pinLo
 // skipped the lock screen entirely regardless of PIN/biometric settings.
 function relock(){
   if(pinLockActive)return; // already showing
+  if(ffxLockGraceActive())return; // left the app only briefly (grace period in Settings)
   if(biometricEnabled&&window.Android){showLock();triggerAuth();}
   else if(pinHash){showLock();}
 }
@@ -2388,7 +2410,7 @@ function budgetAlertFor(b,date){
   const pct=limit>0?spent/limit*100:(spent>0?100:0);
   const periodKey=getRangeFor(bp,date).startStr;
   if(pct>=100)return{level:"over",title:"Budget exceeded: "+b.cat,body:`Spent ${fmt(spent)} of ${fmt(limit)} limit`,key:`budget:${b.id||b.cat}:over:${bp}:${periodKey}`,pct};
-  if(pct>=80)return{level:"warn",title:"Budget alert: "+b.cat,body:`${pct.toFixed(0)}% used — ${fmt(Math.max(0,limit-spent))} remaining`,key:`budget:${b.id||b.cat}:warn:${bp}:${periodKey}`,pct};
+  if(pct>=ffxAlertWarn())return{level:"warn",title:"Budget alert: "+b.cat,body:`${pct.toFixed(0)}% used — ${fmt(Math.max(0,limit-spent))} remaining`,key:`budget:${b.id||b.cat}:warn:${bp}:${periodKey}`,pct};
   return null;
 }
 function checkBudgetAlerts(tx){
@@ -2405,7 +2427,7 @@ function checkBudgetAlerts(tx){
 
 // ── NOTIFICATION CENTER ──
 let notifications=[],notifOpen=false;
-const NOTIF_ICONS={reversal:"&#9203;",sub:"&#128257;",spike:"&#128202;",debt:"&#129309;",ajo:"&#129309;",forecast:"&#128200;",challenge:"&#128293;",budget:"&#9888;&#65039;",bill:"&#128197;",recurring:"&#128257;",goal:"&#127919;",bank:"&#127974;",backup:"&#128190;",info:"&#128276;"};
+const NOTIF_ICONS={project:"&#128188;",reversal:"&#9203;",sub:"&#128257;",spike:"&#128202;",debt:"&#129309;",ajo:"&#129309;",forecast:"&#128200;",challenge:"&#128293;",budget:"&#9888;&#65039;",bill:"&#128197;",recurring:"&#128257;",goal:"&#127919;",bank:"&#127974;",backup:"&#128190;",info:"&#128276;"};
 function persistNotifs(){try{appStorage.setItem("ffd_notifs",JSON.stringify(notifications));}catch(e){}}
 function pushNotif(key,type,title,body,action){
   if(key&&notifications.some(n=>n.key===key))return false;
@@ -2425,7 +2447,7 @@ function updateNotifBadge(){
 function scanNotifications(){
   if(!onboardComplete)return;
   const now=new Date(),today=toLocalISODate(now);
-  const soon=new Date();soon.setDate(soon.getDate()+3);const soonStr=toLocalISODate(soon);
+  const soon=new Date();soon.setDate(soon.getDate()+ffxBillLead());const soonStr=toLocalISODate(soon);
   scheduledPayments.filter(p=>p.status==="pending").forEach(p=>{
     pushNotif("sched:"+p.id,"recurring",(p.type==="income"?"Income due: ":"Payment due: ")+(p.description||p.category),`${fmtD(p.date)} · ${fmtCur(p.amount,txnCurrency(p))} — confirm or skip it`,"recurring");
   });
@@ -2447,7 +2469,7 @@ function scanNotifications(){
   }
   if(txns.length>=10){
     const last=Number(appStorage.getItem("ffd_lastbackup"))||0;
-    if(Date.now()-last>30*864e5)pushNotif("backup:"+today.slice(0,7),"backup","Back up your data",last?"Your last backup was "+Math.floor((Date.now()-last)/864e5)+" days ago":"You haven't saved a backup yet — keep a copy off this phone","backup");
+    if(ffxBackupDays()>0&&Date.now()-last>ffxBackupDays()*864e5)pushNotif("backup:"+today.slice(0,7),"backup","Back up your data",last?"Your last backup was "+Math.floor((Date.now()-last)/864e5)+" days ago":"You haven't saved a backup yet — keep a copy off this phone","backup");
   }
   try{ffxScanNotifications();}catch(e){}
 }
@@ -2832,7 +2854,7 @@ function selectDesc(prefix,val){
   const box=$(prefix+"DescSuggest");if(box){box.innerHTML="";box.style.display="none";}
 }
 function showModal(type,id){
-  const mc=$("modal-container");if(type==="close"){statementLoadToken++;statementReview=null;pendingTx=[];mc.innerHTML="";return;}
+  const mc=$("modal-container");if(type==="close"){statementLoadToken++;statementReview=null;pendingTx=[];window._ffxFund=null;mc.innerHTML="";return;}
   const EC=getEC(),IC=getIC();
   if(type==="edit"||type==="addtx")refreshPayeeList();
 
@@ -3047,6 +3069,7 @@ function addTx(keepOpen){
   const a=parseAmount($("txAmt")?.value);if(!a)return alert("Enter an amount");
   if(!validEntry(a,$("txDate").value,window._txAcc))return;
   const newTx={id:uid(),date:$("txDate").value,description:$("txDesc").value,tags:(window._txTags||[]).slice(),amount:a,type:window._txT||"expense",category:window._txCat,subcategory:window._txSub||"",accountId:window._txAcc,projectId:(window._txT||"expense")==="expense"?$("txProject")?.value||"":"",source:"Manual",receipt:window._txReceipt||null,cleared:!!window._txFromBankAlert};
+  if(window._ffxFund&&newTx.type==="income"){newTx.projectId=window._ffxFund;newTx.funding=true;}
   if(!validateBankAlertEntry(newTx))return;
   if(window._bankAlertId){newTx.source="Bank Alert";newTx.bankAlertId=window._bankAlertId;newTx.externalReference=window._bankAlertMeta?.reference||"";newTx.bankAlertPackage=window._bankAlertMeta?.packageName||"";newTx.cleared=false;}
   txns.push(newTx);ffxRememberAccount(newTx.accountId);haptic("success");
@@ -3282,7 +3305,7 @@ function fmtKNoSym(a){if(privOn())return"•••";const n=Number(a||0);return 
 function calendarCardHTML(){
   const y=calDate.getFullYear(),m=calDate.getMonth();
   const first=new Date(y,m,1);
-  const startOffset=(first.getDay()+6)%7; // Monday-first grid (getDay(): 0=Sun..6=Sat)
+  const startOffset=(first.getDay()-ffxWeekStart()+7)%7; // grid starts on the chosen first day of the week
   const daysInMonth=new Date(y,m+1,0).getDate();
   const monthTx=getCalMonthTx();
   const byDay={};
@@ -3297,10 +3320,10 @@ function calendarCardHTML(){
   for(let i=0;i<startOffset;i++)cells+=`<div class="cal-cell empty"></div>`;
   for(let d=1;d<=daysInMonth;d++){
     const dateStr=toLocalISODate(new Date(y,m,d));
-    const data=byDay[d];
-    cells+=`<div class="cal-cell ${calSelectedDay===dateStr?"sel":""} ${dateStr===todayStr?"today":""}" onclick="selectCalDay('${dateStr}')"><div class="cal-day-num">${d}</div>${data?`${data.inc?`<div class="cal-amt inc">+${fmtKNoSym(data.inc)}</div>`:""}${data.exp?`<div class="cal-amt exp">-${fmtKNoSym(data.exp)}</div>`:""}`:""}</div>`;
+    const data=byDay[d];const heatMax=Math.max(1,...Object.values(byDay).map(x=>x.exp));
+    cells+=`<div class="cal-cell ${calSelectedDay===dateStr?"sel":""} ${dateStr===todayStr?"today":""}" style="${data&&data.exp?`background:rgba(239,68,68,${(0.06+0.34*data.exp/heatMax).toFixed(2)})`:""}" onclick="selectCalDay('${dateStr}')"><div class="cal-day-num">${d}</div>${data?`${data.inc?`<div class="cal-amt inc">+${fmtKNoSym(data.inc)}</div>`:""}${data.exp?`<div class="cal-amt exp">-${fmtKNoSym(data.exp)}</div>`:""}`:""}</div>`;
   }
-  return`<div class="card"><div class="pp-row" style="justify-content:center"><button class="pp-nav" onclick="navCalMonth(-1)">&#9664;</button><span class="fz13 fw7" style="min-width:110px;text-align:center">${MO[m]} ${y}</span><button class="pp-nav" onclick="navCalMonth(1)">&#9654;</button></div><div class="cal-grid-hdr"><div>M</div><div>T</div><div>W</div><div>T</div><div>F</div><div>S</div><div>S</div></div><div class="cal-grid">${cells}</div></div>`;
+  return`<div class="card"><div class="pp-row" style="justify-content:center"><button class="pp-nav" onclick="navCalMonth(-1)">&#9664;</button><span class="fz13 fw7" style="min-width:110px;text-align:center">${MO[m]} ${y}</span><button class="pp-nav" onclick="navCalMonth(1)">&#9654;</button></div><div class="cal-grid-hdr">${ffxCalHeader()}</div><div class="cal-grid">${cells}</div></div>`;
 }
 function addTxForDate(dateStr){
   showModal("addtx");
@@ -3334,9 +3357,9 @@ function rTx(f,inc,exp){
     $("main").innerHTML=ppHTML()+filterBarHTML+viewToggleHTML+calendarCardHTML()+calDayDetailHTML();
     return;
   }
-  const flat=ffxHistFlat();const sorted=ffxHistSorted(f);const groups={};sorted.forEach(t=>{(groups[t.date]=groups[t.date]||[]).push(t);});const dates=Object.keys(groups).sort((a,b)=>ffxHist.sort==="old"?a.localeCompare(b):b.localeCompare(a));
-  $("main").innerHTML=ppHTML()+filterBarHTML+viewToggleHTML+`<div class="flex-b fz10 muted mb8 ffx-hsum"><span>${f.length} entries</span><div class="flex g6"><span>In: <span class="green">${fmtK(inc)}</span> &middot; Out: <span class="red">${fmtK(exp)}</span> &middot; Net: <span class="${inc-exp>=0?"green":"red"}">${inc-exp<0?"&minus;":""}${fmtK(Math.abs(inc-exp))}</span></span><button class="btn btn-g btn-sm" onclick="showModal('upload')" title="Import a bank statement">&#8679; Import</button><button class="btn btn-g btn-sm" onclick="exportFilteredCSV()" title="Export what you see">&#10515; Export</button><button class="btn ${selectMode?"btn-p":"btn-g"} btn-sm" onclick="toggleSelectMode()">${selectMode?"Cancel":"Select"}</button></div></div>
-  ${flat?ffxFlatCardHTML(sorted):`<div class="card" style="padding:0;overflow:hidden">${dates.length?ffxLimitDates(dates,groups).map(d=>{const dayInc=groups[d].filter(t=>t.type==="income").reduce((s,t)=>FinanceCore.round(s+primaryAmount(t)),0);const dayExp=groups[d].filter(t=>t.type==="expense").reduce((s,t)=>FinanceCore.round(s+primaryAmount(t)),0);const dayItems=selectMode?groups[d]:groupSplits(groups[d]);return`<div class="date-hdr flex-b"><span>${fmtD(d)}</span><span class="date-hdr-tot"><span class="green">${fmtK(dayInc)}</span><span class="red">${fmtK(dayExp)}</span></span></div>${dayItems.map(t=>txListRow(t,selectMode)).join("")}`;}).join(""):'<div class="muted fz12 tac" style="padding:40px">No transactions found</div>'}${dates.length?ffxMoreBtn(dates,groups):""}</div>`}`;
+  const flat=ffxHistFlat();const sorted=ffxHistSorted(f);const groups={};sorted.forEach(t=>{const k=ffxGroupKey(t);(groups[k]=groups[k]||[]).push(t);});const dates=ffxGroupOrder(Object.keys(groups),groups);
+  $("main").innerHTML=ppHTML()+filterBarHTML+viewToggleHTML+`<div class="flex-b fz10 muted mb8 ffx-hsum"><span>${f.length} entries</span><div class="flex g6"><span>In: <span class="green">${fmtK(inc)}</span> &middot; Out: <span class="red">${fmtK(exp)}</span> &middot; Net: <span class="${inc-exp>=0?"green":"red"}">${inc-exp<0?"&minus;":""}${fmtK(Math.abs(inc-exp))}</span></span><button class="btn btn-g btn-sm" onclick="showModal('upload')" title="Import a bank statement">&#8679; Import</button><button class="btn btn-g btn-sm" onclick="exportFilteredCSV()" title="Export what you see">&#10515; Export</button><button class="btn ${selectMode?"btn-p":"btn-g"} btn-sm" onclick="toggleSelectMode()">${selectMode?"Cancel":"Select"}</button>${selectMode?`<button class="btn btn-g btn-sm" onclick="ffxSelectAllShown()">${selectedTxIds.size?"Clear":"All"}</button>`:""}</div></div>
+  ${flat?ffxFlatCardHTML(sorted):`<div class="card" style="padding:0;overflow:hidden">${dates.length?ffxLimitDates(dates,groups).map(d=>{const dayInc=groups[d].filter(t=>t.type==="income").reduce((s,t)=>FinanceCore.round(s+primaryAmount(t)),0);const dayExp=groups[d].filter(t=>t.type==="expense").reduce((s,t)=>FinanceCore.round(s+primaryAmount(t)),0);const dayItems=selectMode?groups[d]:groupSplits(groups[d]);return`<div class="date-hdr flex-b"><span>${ffxGroupLabel(d)}</span><span class="date-hdr-tot"><span class="green">${fmtK(dayInc)}</span><span class="red">${fmtK(dayExp)}</span></span></div>${dayItems.map(t=>txListRow(t,selectMode)).join("")}`;}).join(""):'<div class="muted fz12 tac" style="padding:40px">No transactions found</div>'}${dates.length?ffxMoreBtn(dates,groups):""}</div>`}`;
   const si=$("si");if(si&&search){si.focus();si.setSelectionRange(search.length,search.length);}
   if(selectMode&&selectedTxIds.size){
     const bar=document.createElement("div");bar.id="selectBar";bar.className="select-bar";
@@ -3363,6 +3386,7 @@ function openBulkEdit(){
       <div><label class="flex g8 mb8"><input type="checkbox" id="bulkChgDate" onchange="$('bulkDateWrap').style.display=this.checked?'block':'none'"><span class="fz12 fw6">Change Date</span></label><div id="bulkDateWrap" style="display:none"><input class="inp" type="date" id="bulkDate"></div></div>
       <div><label class="flex g8 mb8"><input type="checkbox" id="bulkChgAcc" onchange="$('bulkAccWrap').style.display=this.checked?'block':'none'"><span class="fz12 fw6">Change Account</span></label><div id="bulkAccWrap" style="display:none"><button type="button" class="inp" style="text-align:left;display:flex;align-items:center;justify-content:space-between" onclick="openAccPicker('_bulkAcc','bulkAccLabel')"><span id="bulkAccLabel"></span><span class="muted">&#8250;</span></button></div></div>
       <div><label class="flex g8 mb8"><input type="checkbox" id="bulkChgCat" onchange="$('bulkCatWrap').style.display=this.checked?'block':'none'"><span class="fz12 fw6">Change Category / Subcategory</span></label><div id="bulkCatWrap" style="display:none"><button type="button" class="inp" style="text-align:left;display:flex;align-items:center;justify-content:space-between" onclick="openCatPicker('_bulkCatType','_bulkCat','_bulkSub','bulkCatLabel')"><span id="bulkCatLabel"></span><span class="muted">&#8250;</span></button><div class="fz9 muted mt6">Doesn't apply to any transfers in the selection.</div></div></div>
+      ${ffxBulkTagsHTML()}
     </div>
     <button class="btn btn-p w100 mt16" style="justify-content:center;padding:14px" onclick="applyBulkEdit()">Apply to ${selectedTxIds.size} Transactions</button>
   </div></div>`;
@@ -3374,9 +3398,13 @@ function applyBulkEdit(){
   if(chgDate&&!FinanceCore.date(newDate))return alert("Enter a valid date");
   if(chgAcc){const target=accounts.find(a=>a.id===window._bulkAcc);if(!target)return alert("Select an account");if(txns.some(t=>selectedTxIds.has(t.id)&&t.type!=="transfer"&&txnCurrency(t)!==(target.currency||currency.code)))return alert("Bulk reassignment requires matching account currencies.");}
   let count=0;
+  const snap=JSON.parse(JSON.stringify(txns.filter(x=>selectedTxIds.has(x.id))));
+  const tagAdd=($("bulkTagAdd")?.value||"").trim(),tagRemove=($("bulkTagRemove")?.value||"").trim();
   selectedTxIds.forEach(id=>{
     const t=txns.find(x=>x.id===id);if(!t)return;
     let touched=false;
+    if(tagAdd){t.tags=t.tags||[];if(!t.tags.includes(tagAdd))t.tags.push(tagAdd);touched=true;}
+    if(tagRemove&&t.tags&&t.tags.includes(tagRemove)){t.tags=t.tags.filter(x=>x!==tagRemove);touched=true;}
     if(chgDate&&newDate){t.date=newDate;touched=true;}
     if(t.type!=="transfer"){
       if(chgAcc&&window._bulkAcc){t.accountId=window._bulkAcc;touched=true;}
@@ -3387,7 +3415,7 @@ function applyBulkEdit(){
   save();showModal("close");
   selectMode=false;selectedTxIds=new Set();
   render();
-  showToast("✅ Updated "+count+" transaction"+(count!==1?"s":""),"green");
+  showUndoToast("Updated "+count+" transaction"+(count!==1?"s":""),()=>{snap.forEach(o=>{const t=txns.find(x=>x.id===o.id);if(t){Object.keys(t).forEach(k=>delete t[k]);Object.assign(t,o);}});save();});
 }
 function openBulkTransfer(){
   if(!selectedTxIds.size)return;
@@ -3448,7 +3476,7 @@ initializeFinancialState();
 save();
 processRecurring();
 render();
-scanNotifications();updateNotifBadge();ffxInitUX();
+scanNotifications();updateNotifBadge();ffxInitUX();ffxInitVisit();
 relock(); // cold-start lock check; subsequent checks come from native onResume via relock() too
 syncWidgetData(); // widget should reflect current data as soon as the app opens, not just on next save()
 // Surface any bank alerts detected while the app was closed

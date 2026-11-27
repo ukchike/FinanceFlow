@@ -4,16 +4,22 @@
 // main script's globals (txns, accounts, save, render, ...) without load-order problems.
 'use strict';
 
-let ffx={debts:[],ajo:[],reversalLog:[],dismissedSubs:[],templates:[],fx:{code:"USD",rates:[]}};
+let ffx={debts:[],ajo:[],reversalLog:[],dismissedSubs:[],templates:[],streakRepairs:[],sharedDeletes:[],savedFilters:[],milestones:[],projectIncome:[],monthStart:1,custom:null,prefs:{},fx:{code:"USD",rates:[]}};
 let ffxView=null,ffxStack=[],ffxDetail=null,ffxState={};
 const FFX_DAY=864e5;
 
 // ── persistence ──
-function ffxFresh(){return{debts:[],ajo:[],reversalLog:[],dismissedSubs:[],templates:[],fx:{code:"USD",rates:[]}};}
+function ffxFresh(){return{debts:[],ajo:[],reversalLog:[],dismissedSubs:[],templates:[],streakRepairs:[],sharedDeletes:[],savedFilters:[],milestones:[],projectIncome:[],monthStart:1,custom:null,prefs:{},fx:{code:"USD",rates:[]}};}
 function ffxNormalize(d){
   const f=ffxFresh();if(!d||typeof d!=="object")return f;
-  for(const k of ["debts","ajo","reversalLog","dismissedSubs","templates","streakRepairs"])if(Array.isArray(d[k]))f[k]=d[k];
+  for(const k of ["debts","ajo","reversalLog","dismissedSubs","templates","streakRepairs","sharedDeletes","savedFilters","milestones","projectIncome"])if(Array.isArray(d[k]))f[k]=d[k];
   if(d.fx&&typeof d.fx==="object"){f.fx.code=typeof d.fx.code==="string"?d.fx.code:"USD";f.fx.rates=Array.isArray(d.fx.rates)?d.fx.rates.filter(r=>r&&FinanceCore.date(r.date)&&Number(r.rate)>0):[];}
+  if(typeof d.deviceId==="string")f.deviceId=d.deviceId.slice(0,40);
+  for(const k of ["lastFamilySent"])if(typeof d[k]==="string")f[k]=d[k];
+  if(d.lastFamilyReceived&&typeof d.lastFamilyReceived==="object")f.lastFamilyReceived={from:String(d.lastFamilyReceived.from||""),at:String(d.lastFamilyReceived.at||"")};
+  const ms=Math.floor(Number(d.monthStart));if(ms>=1&&ms<=28)f.monthStart=ms;
+  if(d.custom&&FinanceCore.date(d.custom.from)&&FinanceCore.date(d.custom.to)&&d.custom.from<=d.custom.to)f.custom={from:d.custom.from,to:d.custom.to};
+  if(d.prefs&&typeof d.prefs==="object")f.prefs=Object.assign({},d.prefs);
   return f;
 }
 function ffxLoad(){try{ffx=ffxNormalize(JSON.parse(appStorage.getItem("ffd_tools")||"null"));}catch(e){ffx=ffxFresh();}}
@@ -23,6 +29,7 @@ function ffxValidateBackup(t){
   if(!t||typeof t!=="object"||Array.isArray(t))throw new Error("Invalid money tools data.");
   for(const k of ["debts","ajo","reversalLog","dismissedSubs"])if(t[k]!==undefined&&!Array.isArray(t[k]))throw new Error("Invalid money tools data.");
   for(const d of t.debts||[])if(!d||typeof d.person!=="string"||!(Number(d.amount)>0)||!["lent","borrowed"].includes(d.direction))throw new Error("Invalid IOU in backup.");
+  for(const m of t.milestones||[])if(!m||typeof m.title!=="string"||typeof m.projectId!=="string")throw new Error("Invalid project milestone in backup.");
   for(const a of t.ajo||[])if(!a||typeof a.name!=="string"||!(Number(a.amount)>0)||!Array.isArray(a.members)||!a.members.length||!FinanceCore.date(a.startDate))throw new Error("Invalid ajo circle in backup.");
 }
 
@@ -114,7 +121,7 @@ function ffxFeeType(t){
   return sub||"Other charges";
 }
 function ffxFeesIn(startStr,endStr){return txns.filter(t=>t.date>=startStr&&t.date<=endStr&&ffxIsFee(t));}
-function ffxMonthRange(offset){const d=new Date();d.setDate(1);d.setMonth(d.getMonth()+offset);const r=getRangeFor("month",d);return{start:r.startStr,end:r.endStr,label:MO[d.getMonth()]};}
+function ffxMonthRange(offset){const a=new Date(getRangeFor("month",new Date()).start);a.setMonth(a.getMonth()+offset);const r=getRangeFor("month",a);return{start:r.startStr,end:r.endStr,label:MO[a.getMonth()]};}
 function ffxFeesHTML(){
   const cur=ffxMonthRange(0),prev=ffxMonthRange(-1);
   const fees=ffxFeesIn(cur.start,cur.end),total=fees.reduce((s,t)=>s+ffxPA(t),0),prevTotal=ffxFeesIn(prev.start,prev.end).reduce((s,t)=>s+ffxPA(t),0);
@@ -209,13 +216,11 @@ function ffxRulesHTML(){
 
 // ── 6. month / year in review ──
 function ffxRecapRange(kind){
-  const d=new Date();
-  if(kind==="lastmonth"){d.setDate(1);d.setMonth(d.getMonth()-1);}
+  let d=new Date();
+  if(kind==="lastmonth"){d=new Date(getRangeFor("month",d).start);d.setMonth(d.getMonth()-1);}
   if(kind==="lastyear")d.setFullYear(d.getFullYear()-1);
-  const mode=kind.includes("year")?"year":"month";const r=getRangeFor(mode,d);
-  const p=new Date(d);if(mode==="year")p.setFullYear(p.getFullYear()-1);else{p.setDate(1);p.setMonth(p.getMonth()-1);}
-  const pr=getRangeFor(mode,p);
-  return{start:r.startStr,end:r.endStr,pstart:pr.startStr,pend:pr.endStr,label:mode==="year"?String(d.getFullYear()):MO[d.getMonth()]+" "+d.getFullYear()};
+  const mode=kind.includes("year")?"year":"month",r=getRangeFor(mode,d),pr=ffxPrevRange(mode,d);
+  return{start:r.startStr,end:r.endStr,pstart:pr.startStr,pend:pr.endStr,label:mode==="year"?String(d.getFullYear()):ffxMonthStart()>1?ffxPeriodLabel("month",d):MO[d.getMonth()]+" "+d.getFullYear()};
 }
 function ffxRecapData(kind){
   const R=ffxRecapRange(kind),inR=t=>t.date>=R.start&&t.date<=R.end;
@@ -702,6 +707,7 @@ function ffxScanNotifications(){
     if(!r.paid&&r.date>=ffxAddDays(today,-3)&&r.date<=ffxAddDays(today,1))pushNotif(`ajo:${a.id}:pay:${r.i}`,"ajo",`Ajo contribution due: ${a.name}`,`${fmt(a.amount)} · ${fmtD(r.date)} · ${r.collector} collects`,"tool:ajo");
     if(r.collector===a.me&&!r.collected&&r.date<=ffxAddDays(today,2)&&r.date>=ffxAddDays(today,-7))pushNotif(`ajo:${a.id}:collect:${r.i}`,"ajo",`Your ajo payout is due: ${a.name}`,`${fmt(Number(a.amount)*a.members.length)} on ${fmtD(r.date)}`,"tool:ajo");
   }));
+  try{ffxScanProjects();}catch(e){}
   try{const f=ffxForecast(30);if(f.low.v<0)pushNotif("fc:"+today.slice(0,7)+":"+f.low.date.slice(0,7),"forecast","Your balance may run low",`At your usual spending it could dip to ${fmt(f.low.v)} around ${fmtD(f.low.date)}`,"tool:forecast");}catch(e){}
   const st=ffxStreak2();if(st.streak>=2&&!st.thisWeek&&new Date().getDay()>=5)pushNotif("streak:"+ffxWeekKey(today),"challenge",`Keep your ${st.streak}-week streak`,"Log at least one transaction this week to keep it going","");
   if(st.repairable)pushNotif("streakfix:"+st.prev,"challenge",`Your ${st.before}-week streak broke`,"You can repair it once a month — tap to open Home","");
@@ -746,14 +752,14 @@ function syncWidgetDataUnmasked(fn){window._privBypass=true;try{fn();}finally{wi
 // ── left to spend + pacing (Copilot "Free to spend", Rocket Money "Left for spending") ──
 function ffxBudgetMatch(b,t){return t.category===b.cat&&(b.limit>0||(b.subs||[]).some(s=>s.name===t.subcategory&&s.limit>0));}
 function ffxPacing(){
-  const now=new Date(),r=getRangeFor("month",now),dim=new Date(now.getFullYear(),now.getMonth()+1,0).getDate(),day=now.getDate(),today=ffxToday();
+  const now=new Date(),r=getRangeFor("month",now),today=ffxToday(),dim=ffxDaysBetween(r.startStr,r.endStr)+1,day=Math.max(1,Math.min(dim,ffxDaysBetween(r.startStr,today)+1));
   const monthBudgets=budgets.filter(b=>(b.period||"month")==="month"&&budgetBaseLimit(b)>0);
   let limit=0,src="",match=()=>true;
   if(monthBudgets.length){limit=monthBudgets.reduce((s,b)=>s+budgetEffLimit(b,"month",now),0);src="budget";match=t=>monthBudgets.some(b=>ffxBudgetMatch(b,t));}
   else{const p=ffxMonthRange(-1);limit=txns.filter(t=>t.type==="expense"&&t.date>=p.start&&t.date<=p.end).reduce((s,t)=>s+ffxPA(t),0);src="lastmonth";}
   if(!(limit>0))return null;
   const exp=txns.filter(t=>t.type==="expense"&&t.date>=r.startStr&&t.date<=today&&match(t));
-  const perDaySpent=new Array(dim+1).fill(0);exp.forEach(t=>{const d=Number(t.date.slice(8,10));perDaySpent[d]+=ffxPA(t);});
+  const perDaySpent=new Array(dim+1).fill(0);exp.forEach(t=>{const d=ffxDaysBetween(r.startStr,t.date)+1;if(d>=1&&d<=dim)perDaySpent[d]+=ffxPA(t);});
   const series=[];let cum=0;for(let d=1;d<=day;d++){cum+=perDaySpent[d];series.push(cum);}
   const spent=cum,left=limit-spent,daysLeft=dim-day+1,perDay=left>0?left/daysLeft:0,expected=limit*day/dim;
   return{limit,spent,left,perDay,daysLeft,src,series,dim,day,ahead:spent>expected,overBy:spent-expected};
@@ -1304,19 +1310,18 @@ FFX_RENDER.scan=()=>`<div class="ffx-hero"><div class="fz11 muted">Read on this 
 
 // ════════════════ Tab upgrades: Stats, History, Projects, Settings ════════════════
 // ── Stats ──
-function ffxPrevDate(mode,date){const d=new Date(date);if(mode==="week")d.setDate(d.getDate()-7);else if(mode==="month"){d.setDate(1);d.setMonth(d.getMonth()-1);}else if(mode==="quarter"){d.setDate(1);d.setMonth(d.getMonth()-3);}else d.setFullYear(d.getFullYear()-1);return d;}
 function ffxStatsData(type,mode,date){
-  const r=getRangeFor(mode,date),p=getRangeFor(mode,ffxPrevDate(mode,date));
+  const r=getRangeFor(mode,date),p=ffxPrevRange(mode,date);
   const list=txns.filter(t=>t.type===type&&t.date>=r.startStr&&t.date<=r.endStr);
-  const prev=txns.filter(t=>t.type===type&&t.date>=p.startStr&&t.date<=p.endStr);
+  const prev=p?txns.filter(t=>t.type===type&&t.date>=p.startStr&&t.date<=p.endStr):[];
   const sum=l=>l.reduce((s,t)=>s+ffxPA(t),0),today=ffxToday(),endCap=r.endStr<today?r.endStr:today;
-  return{r,list,count:list.length,total:sum(list),prevTotal:sum(prev),days:Math.max(1,ffxDaysBetween(r.startStr,endCap)+1)};
+  return{r,list,count:list.length,total:sum(list),prevTotal:sum(prev),hasPrev:!!p,days:Math.max(1,ffxDaysBetween(r.startStr,endCap)+1)};
 }
 function ffxStatsSummaryHTML(type){
   const d=ffxStatsData(type,pMode,pDate);if(!d.count&&!d.prevTotal)return"";
   const chg=d.prevTotal>0?(d.total-d.prevTotal)/d.prevTotal*100:null,good=type==="income"?chg>=0:chg<=0;
-  const label={week:"last week",month:"last month",quarter:"last quarter",year:"last year"}[pMode]||"before";
-  return`<div class="ffx-ssum"><div><span>Per day</span><b>${fmtK(d.total/d.days)}</b></div><div><span>vs ${label}</span><b class="${chg===null?"":good?"green":"red"}">${chg===null?"—":(chg>=0?"▲ ":"▼ ")+Math.abs(chg).toFixed(0)+"%"}</b></div><div><span>Entries</span><b>${d.count}</b></div></div>`;
+  const label={week:"last week",month:"last month",quarter:"last quarter",year:"last year",custom:"prior range"}[pMode]||"before";
+  return`<div class="ffx-ssum"><div><span>Per day</span><b>${fmtK(d.total/d.days)}</b></div><div style="${d.hasPrev?"":"display:none"}"><span>vs ${label}</span><b class="${chg===null?"":good?"green":"red"}">${chg===null?"—":(chg>=0?"▲ ":"▼ ")+Math.abs(chg).toFixed(0)+"%"}</b></div><div><span>Entries</span><b>${d.count}</b></div></div>`;
 }
 function ffxViewCat(cat,type){fCat=cat;fType=type;fAcc="all";search="";ffxHist.flag="";ffxHist.min="";ffxHist.max="";goTo("transactions");}
 function ffxViewSearch(text,type){fCat="all";fType=type;fAcc="all";search=text;ffxHist.flag="";ffxHist.min="";ffxHist.max="";goTo("transactions");}
@@ -1331,14 +1336,14 @@ function ffxStatsExtrasHTML(type){
   const payees=top.length?`<div class="card"><div class="fz12 fw7 mb8">${isExp?"Where it went":"Who paid you"}</div>${top.map(o=>`<button class="ffx-prow" onclick="ffxViewSearch('${escJs(o.lab)}','${type}')"><div class="flex-b"><span class="fz12 fw6 ellip">${esc(o.lab)}</span><span class="fz12 fw7">${fmt(o.total)}</span></div><div class="bar-track mt4"><div class="bar-fill" style="width:${o.total/tmax*100}%;background:${isExp?"var(--red)":"var(--green)"};opacity:.7"></div></div><div class="fz9 muted mt4">${o.n} time${o.n===1?"":"s"} · tap to see them</div></button>`).join("")}</div>`:"";
   const big=d.list.slice().sort((a,b)=>ffxPA(b)-ffxPA(a)).slice(0,3);
   const biggest=`<div class="card"><div class="fz12 fw7 mb4">Biggest ${isExp?"purchases":"payments"}</div>${big.map(t=>`<div class="ffx-row" style="cursor:pointer" onclick="showModal('edit','${escJs(t.id)}')"><div style="min-width:0"><div class="fz12 fw6 ellip">${esc(t.description||t.category)}</div><div class="fz10 muted">${fmtD(t.date)} · ${esc(t.category||"")}</div></div><div class="fz12 fw8 ${isExp?"red":"green"}">${fmtTxn(t)}</div></div>`).join("")}</div>`;
-  const months=[];for(let i=5;i>=0;i--){const m=new Date(pDate.getFullYear(),pDate.getMonth()-i,1),r=getRangeFor("month",m);months.push({label:MO[m.getMonth()],cur:i===0,v:txns.filter(t=>t.type===type&&t.date>=r.startStr&&t.date<=r.endStr).reduce((s,t)=>s+ffxPA(t),0)});}
+  const months=[],base0=getRangeFor("month",pDate);for(let i=5;i>=0;i--){const m=new Date(base0.start);m.setMonth(m.getMonth()-i);const r=getRangeFor("month",m);months.push({label:MO[m.getMonth()],cur:i===0,v:txns.filter(t=>t.type===type&&t.date>=r.startStr&&t.date<=r.endStr).reduce((s,t)=>s+ffxPA(t),0)});}
   const mmax=Math.max(...months.map(m=>m.v),1),avg=months.reduce((s,m)=>s+m.v,0)/6;
   const trend=`<div class="card"><div class="flex-b mb8"><span class="fz12 fw7">Last 6 months</span><span class="fz10 muted">Average ${fmtK(avg)}</span></div><div class="ffx-bars" style="height:96px">${months.map(m=>`<div class="ffx-bar-col"><div class="ffx-bar-val">${m.v?fmtK(m.v):""}</div><div class="ffx-bar" style="height:${Math.max(m.v/mmax*100,m.v?4:0)}%;${m.cur?"":"opacity:.45;"}background:${isExp?"var(--red)":"var(--green)"}"></div><div class="ffx-bar-lbl" style="${m.cur?"font-weight:800;color:var(--text)":""}">${m.label}</div></div>`).join("")}</div></div>`;
-  return trend+weekday+payees+biggest;
+  return ffxCashFlowHTML(type,d)+trend+weekday+payees+ffxBudgetCheckHTML(type)+ffxBreakdownHTML(type,d)+biggest+`<button class="btn btn-g w100 mb12" style="justify-content:center" onclick="ffxExportStatsCsv()">⤓ Export this breakdown (CSV)</button>`;
 }
 
 // ── History ──
-let ffxHist={open:false,sort:"new",min:"",max:"",flag:""};
+let ffxHist={open:false,sort:"new",min:"",max:"",flag:"",allTime:false,group:"day"};let ffxDupMemo=null,ffxSince=0;
 function ffxLargeThreshold(){
   const from=ffxAddDays(ffxToday(),-120),a=txns.filter(t=>t.type==="expense"&&t.date>=from).map(ffxPA).sort((x,y)=>x-y);
   return a.length<10?Infinity:a[Math.floor(a.length*0.9)];
@@ -1352,6 +1357,8 @@ function ffxHistMatch(t){
   if(f.flag==="uncleared"&&(t.type==="transfer"||t.cleared))return false;
   if(f.flag==="receipt"&&!(t.receipt||t.source==="Receipt"))return false;
   if(f.flag==="large"&&!(t.type==="expense"&&a>=ffxLargeThreshold()))return false;
+  if(f.flag==="new"&&!ffxIsNew(t))return false;
+  if(f.flag==="dup"&&!ffxDupIds().has(t.id))return false;
   return true;
 }
 function ffxHistSorted(list){
@@ -1364,13 +1371,15 @@ function ffxHistSorted(list){
 const ffxHistFlat=()=>ffxHist.sort==="big"||ffxHist.sort==="small";
 function ffxHistActiveCount(){return(fType!=="all")+(fCat!=="all")+(fAcc!=="all")+(!!ffxHist.min)+(!!ffxHist.max)+(!!ffxHist.flag)+(ffxHist.sort!=="new");}
 function ffxSetFlag(k){ffxHist.flag=ffxHist.flag===k?"":k;haptic("light");render();}
-function ffxHistReset(){fType="all";fCat="all";fAcc="all";search="";ffxHist.min="";ffxHist.max="";ffxHist.flag="";ffxHist.sort="new";render();}
+function ffxHistReset(){fType="all";fCat="all";fAcc="all";search="";ffxHist.min="";ffxHist.max="";ffxHist.flag="";ffxHist.sort="new";ffxHist.allTime=false;ffxHist.group="day";render();}
 function ffxHistFilterBar(){
   const f=ffxHist,n=ffxHistActiveCount(),r=getRangeFor(pMode,pDate),inR=txns.filter(t=>t.date>=r.startStr&&t.date<=r.endStr);
   const cnt={review:inR.filter(t=>t.needsReview).length,uncleared:inR.filter(t=>t.type!=="transfer"&&!t.cleared).length,receipt:inR.filter(t=>t.receipt||t.source==="Receipt").length};
+  const nNew=ffxSince?inR.filter(ffxIsNew).length:0,nDup=ffxDupIds().size;
   const chip=(k,label,c)=>`<button class="ffx-hchip ${f.flag===k?"on":""}" aria-pressed="${f.flag===k}" onclick="ffxSetFlag('${k}')">${label}${c!==undefined?` <i>${c}</i>`:""}</button>`;
   const sortName={new:"Newest first",old:"Oldest first",big:"Largest first",small:"Smallest first"};
   const tags=[];
+  if(f.allTime)tags.push(["All time","ffxHist.allTime=false"]);
   if(fType!=="all")tags.push(["Type: "+fType,"fType='all'"]);
   if(fCat!=="all")tags.push([fCat,"fCat='all'"]);
   if(fAcc!=="all")tags.push([accName(fAcc)||"Account","fAcc='all'"]);
@@ -1383,10 +1392,12 @@ function ffxHistFilterBar(){
       <select class="inp" aria-label="Account" style="font-size:12px" onchange="fAcc=this.value;render()"><option value="all">All accounts</option>${accounts.map(a=>`<option value="${esc(a.id)}" ${fAcc===a.id?"selected":""}>${esc(a.name)}</option>`).join("")}</select></div>
     <div class="grid2 mt8" style="gap:8px"><input class="inp" inputmode="decimal" aria-label="Minimum amount" style="font-size:12px" placeholder="Min amount" value="${esc(f.min)}" onchange="ffxHist.min=this.value;render()"><input class="inp" inputmode="decimal" aria-label="Maximum amount" style="font-size:12px" placeholder="Max amount" value="${esc(f.max)}" onchange="ffxHist.max=this.value;render()"></div>
     <select class="inp mt8" aria-label="Sort" style="font-size:12px" onchange="ffxHist.sort=this.value;render()">${Object.entries(sortName).map(([k,v])=>`<option value="${k}" ${f.sort===k?"selected":""}>${v}</option>`).join("")}</select>
+    <select class="inp mt8" aria-label="Group by" style="font-size:12px" onchange="ffxHist.group=this.value;render()">${[["day","Group by day"],["week","Group by week"],["cat","Group by category"]].map(([k,v])=>`<option value="${k}" ${f.group===k?"selected":""}>${v}</option>`).join("")}</select>
+    <div class="flex g6 mt8"><button class="btn btn-g btn-sm" style="flex:1;justify-content:center" onclick="ffxSaveFilter()">☆ Save this filter</button>${(ffx.savedFilters||[]).length?`<button class="btn btn-g btn-sm" style="flex:1;justify-content:center" onclick="ffxManageSaved()">Manage saved</button>`:""}</div>
     <div class="flex g6 mt8"><button class="btn btn-g btn-sm" style="flex:1;justify-content:center" onclick="ffxHistReset()">Reset all</button><button class="btn btn-g btn-sm" style="flex:1;justify-content:center" onclick="exportFilteredCSV()">⤓ Export these</button></div></div>`:"";
   return`<div class="ffx-hf"><div class="flex g6"><div style="position:relative;flex:1"><span style="position:absolute;left:10px;top:11px;font-size:12px" class="muted">&#128269;</span><input class="inp" id="si" aria-label="Search transactions" style="padding-left:30px;font-size:13px" placeholder="Search description, category, tag…" value="${esc(search)}" oninput="doS(this.value)"></div><button class="ffx-hbtn ${n||f.open?"on":""}" aria-expanded="${f.open}" onclick="ffxHist.open=!ffxHist.open;render()">⚙ Filters${n?` <i>${n}</i>`:""}</button></div>
-    <div class="ffx-hchips">${chip("review","📥 Review",cnt.review)}${chip("uncleared","○ Uncleared",cnt.uncleared)}${chip("receipt","📷 Receipts",cnt.receipt)}${chip("large","⬆ Large")}</div>
-    ${panel}${tags.length?`<div class="ffx-hchips">${tags.map(([l,c])=>`<button class="ffx-hchip tag" onclick="${c};render()">${esc(l)} ✕</button>`).join("")}${tags.length>1?`<button class="ffx-hchip" onclick="ffxHistReset()">Clear all</button>`:""}</div>`:""}</div>`;
+    <div class="ffx-hchips">${(ffx.savedFilters||[]).map(sf=>`<button class="ffx-hchip saved" onclick="ffxApplySaved('${escJs(sf.id)}')">★ ${esc(sf.name)}</button>`).join("")}${nNew?chip("new","🆕 New",nNew):""}${nDup?chip("dup","⚠ Duplicates",nDup):""}${chip("review","📥 Review",cnt.review)}${chip("uncleared","○ Uncleared",cnt.uncleared)}${chip("receipt","📷 Receipts",cnt.receipt)}${chip("large","⬆ Large")}<button class="ffx-hchip ${f.allTime?"on":""}" aria-pressed="${f.allTime}" onclick="ffxHist.allTime=!ffxHist.allTime;haptic('light');render()">🌐 All time</button></div>${ffxOutsideHint()}
+    ${panel}${f.flag==="dup"?`<div class="ffx-dupbar"><span>Same account, amount and nearly the same date. Open an entry to delete the extra, or dismiss these.</span><button class="btn btn-sm btn-g" onclick="ffxDupDismissAll()">Dismiss all</button></div>`:""}${tags.length?`<div class="ffx-hchips">${tags.map(([l,c])=>`<button class="ffx-hchip tag" onclick="${c};render()">${esc(l)} ✕</button>`).join("")}${tags.length>1?`<button class="ffx-hchip" onclick="ffxHistReset()">Clear all</button>`:""}</div>`:""}</div>`;
 }
 function ffxFlatCardHTML(sorted){
   const shown=sorted.slice(0,txRenderLimit),left=sorted.length-shown.length;
@@ -1448,7 +1459,9 @@ function ffxProjectInsightsHTML(p){
   const catHTML=top.length?`<div class="fz11 fw7 mb6 mt12">Where the money went</div>${top.map(([c,v])=>`<button class="ffx-prow" onclick="projectCategory='${escJs(c)}';render()"><div class="flex-b"><span class="fz11 fw6"><span class="cat-dot" style="display:inline-block;background:${clr(c)};margin-right:6px"></span>${esc(c)}</span><span class="fz11 fw7">${fmt(v)} <span class="muted fw6">· ${(v/Math.max(cum,1)*100).toFixed(0)}%</span></span></div><div class="bar-track mt4"><div class="bar-fill" style="width:${v/tmax*100}%;background:${clr(c)}"></div></div></button>`).join("")}`:"";
   return`<div class="ffx-pins"><div class="flex-b mb4"><span class="fz11 fw7">Spending vs budget</span><span class="fz10 muted">${prog}</span></div>${chart||`<div class="fz10 muted">No expenses linked yet. Choose this project when you add an expense.</div>`}${chart?`<div class="flex g10 fz9 muted mt4"><span><span class="ffx-key" style="background:var(--accent)"></span>Spent</span>${s.budget>0?`<span><span class="ffx-key" style="background:var(--red)"></span>Budget</span>`:""}${s.budget>0&&s.end?`<span><span class="ffx-key dashed"></span>Planned pace</span>`:""}</div>`:""}
     ${msg?`<div class="fz11 mt8">${msg}</div>`:""}${catHTML}
-    <button class="btn btn-p w100 mt12" style="justify-content:center" onclick="ffxAddProjectExpense('${escJs(p.id)}')">+ Add expense to this project</button></div>`;
+    ${ffxProjectFundingHTML(p)}${ffxProjectMilestonesHTML(p)}${ffxProjectReceiptsHTML(p)}
+    <div class="grid2 mt12" style="gap:8px"><button class="btn btn-p" style="justify-content:center" onclick="ffxAddProjectExpense('${escJs(p.id)}')">+ Expense</button><button class="btn btn-g" style="justify-content:center" onclick="ffxAddProjectFunding('${escJs(p.id)}')">+ Funding</button></div>
+    <div class="grid2 mt8" style="gap:8px"><button class="btn btn-g" style="justify-content:center" onclick="ffxShareProjectReport('${escJs(p.id)}')">📤 Share report</button><button class="btn btn-g" style="justify-content:center" onclick="ffxExportProjectCsv('${escJs(p.id)}')">⤓ CSV</button></div></div>`;
 }
 
 // ── Settings ──
@@ -1457,11 +1470,12 @@ function ffxBackupAge(){const t=Number(appStorage.getItem("ffd_lastbackup"))||0;
 const FFX_SET_GROUPS=[
   {title:"Your money",items:[["accounts","🏦","Accounts"],["budgets","🎯","Budgets"],["goals","🏆","Goals"],["recurring","🔁","Recurring"],["categories","🗂️","Categories"],["tags","🏷️","Tags"],["rules","📝","Auto-categorize rules"]]},
   {title:"The app",items:[["tools","🧰","Money tools"],["appearance","🎨","Appearance"],["preferences","🎚️","Preferences"],["security","🔒","Security & privacy"],["notifications","🔔","Bank Alerts"]]},
-  {title:"Your data",items:[["backup","☁️","Backup & Restore"],["about","ℹ️","About"]]}];
+  {title:"Your data",items:[["backup","☁️","Backup & Restore"],["import","📥","Import from another app"],["about","ℹ️","About"]]}];
 function ffxSetTileSub(id){
   if(id==="tools")return"Forecast, ajo, IOUs, scan, AI…";
-  if(id==="preferences")return(FFX_LANGS[uxPrefs.lang||"en"])+" · "+(ffxTone()==="roast"?"Roast":"Gentle")+(uxPrefs.lite?" · Lite":"");
+  if(id==="preferences")return(ffxMonthStart()>1?"Month from "+ffxMonthStart()+ffxOrd(ffxMonthStart())+" · ":"")+(FFX_LANGS[uxPrefs.lang||"en"])+(uxPrefs.lite?" · Lite":"");
   if(id==="security"){const base=settingsItemSub("security");return privacyMode?base+" · amounts hidden":base;}
+  if(id==="import")return"Money Manager, Wallet, Monefy, CSV";
   if(id==="rules")return importRules.length?importRules.length+" rule"+(importRules.length===1?"":"s"):"Teach it your payees";
   if(id==="backup"){const a=ffxBackupAge();return a===null?"Never backed up":a===0?"Backed up today":"Last backup "+a+"d ago";}
   return settingsItemSub(id);
@@ -1470,13 +1484,13 @@ function ffxSetTilesHTML(q){
   q=String(q||"").trim().toLowerCase();let out="";
   FFX_SET_GROUPS.forEach(g=>{
     const items=g.items.filter(([id,,label])=>!q||(label+" "+ffxSetTileSub(id)+" "+id).toLowerCase().includes(q));if(!items.length)return;
-    out+=`<div class="ffx-sgroup">${esc(g.title)}</div><div class="settings-grid">${items.map(([id,icon,label])=>`<button class="settings-card" onclick="${id==="tools"?"closeSettings();openTool('hub')":`setSTTab('${id}')`}"><div class="settings-card-icon">${icon}</div><div class="settings-card-label">${esc(label)}</div><div class="settings-card-sub ellip">${ffxSetTileSub(id)}</div></button>`).join("")}</div>`;
+    out+=`<div class="ffx-sgroup">${esc(g.title)}</div><div class="settings-grid">${items.map(([id,icon,label])=>`<button class="settings-card" onclick="${id==="tools"?"closeSettings();openTool('hub')":id==="import"?"ffxImportStart()":`setSTTab('${id}')`}"><div class="settings-card-icon">${icon}</div><div class="settings-card-label">${esc(label)}</div><div class="settings-card-sub ellip">${ffxSetTileSub(id)}</div></button>`).join("")}</div>`;
   });
   return out||`<div class="empty-state mt12"><div class="empty-ic">🔎</div><div class="fz13 fw7">No settings match “${esc(q)}”</div></div>`;
 }
 function ffxSetSearch(v){ffxState.setQ=v;const g=$("stGrid");if(g)g.innerHTML=ffxSetTilesHTML(v);}
 function ffxSettingsHomeHTML(){
-  const age=ffxBackupAge(),needsBackup=txns.length>=10&&(age===null||age>=30);
+  const age=ffxBackupAge(),needsBackup=ffxBackupDays()>0&&txns.length>=10&&(age===null||age>=ffxBackupDays());
   const initial=(profile.name||"?").trim().charAt(0).toUpperCase()||"?";
   const lock=biometricEnabled||pinHash;
   return`<div class="st-section">
@@ -1487,7 +1501,7 @@ function ffxSettingsHomeHTML(){
     <div id="stGrid">${ffxSetTilesHTML(ffxState.setQ)}</div></div>`;
 }
 function ffxPreferencesHTML(){
-  return`<div class="st-section">${uxFeelHTML()}
+  return`<div class="st-section">${ffxMonthStartHTML()}${ffxFormatsHTML()}${ffxBudgetAlertHTML()}${ffxRemindersHTML()}${ffxBackupFreqHTML()}${uxFeelHTML()}
     <span class="st-label" style="margin-top:6px">Language <span class="ffx-beta">beta</span></span>
     <select class="inp mb6" onchange="setLang(this.value)">${Object.entries(FFX_LANGS).map(([k,v])=>`<option value="${k}" ${(uxPrefs.lang||"en")===k?"selected":""}>${v}</option>`).join("")}</select>
     <div class="fz10 muted mb16">Translates the main tabs, buttons and Home headings. These are first-draft translations.</div>
@@ -1496,32 +1510,589 @@ function ffxPreferencesHTML(){
 
 // ════════════════ Header: greeting / page title + period selector ════════════════
 const FFX_PAGE_TITLES={stats:"Stats",transactions:"History",budgets:"Budgets",projects:"Projects"};
-function ffxPeriodLabel(mode,date){
-  const d=new Date(date);
-  if(mode==="week"){const r=getRangeFor("week",d),a=r.start,b=r.end;return a.getMonth()===b.getMonth()?`${a.getDate()}–${b.getDate()} ${MO[b.getMonth()]}`:`${a.getDate()} ${MO[a.getMonth()]}–${b.getDate()} ${MO[b.getMonth()]}`;}
-  if(mode==="month")return MO[d.getMonth()]+" "+d.getFullYear();
-  if(mode==="quarter")return"Q"+(Math.floor(d.getMonth()/3)+1)+" "+d.getFullYear();
-  return String(d.getFullYear());
-}
-function ffxHeaderUpdate(){
-  const t=$("hdrTitle"),sub=$("txCount"),per=$("hdrPeriod");if(!t||!sub||!per)return;
-  const first=(profile.name||"").trim().split(/\s+/)[0];
-  if(V==="dashboard"&&first){
-    t.textContent=T("Hi")+", "+first;
-    sub.textContent=new Date().toLocaleDateString("en-NG",{weekday:"long",day:"numeric",month:"short"});
-  }else{
-    t.textContent=FFX_PAGE_TITLES[V]?T(FFX_PAGE_TITLES[V]):"FinanceFlow";
-    sub.textContent="FinanceFlow";
-  }
-  const show=["dashboard","stats","transactions","budgets"].includes(V)&&!(cmpMode&&(V==="stats"||V==="budgets"))&&!needsOnboarding();
-  per.hidden=!show;if(!show)return;
-  const modes=[["week","Week"],["month","Month"],["quarter","Quarter"],["year","Year"]];
-  per.innerHTML=`<button class="hp-nav" aria-label="Previous period" onclick="navPeriod(-1,event)">&#9664;</button><button class="hp-label" aria-haspopup="true" aria-expanded="${ppOpen}" onclick="togglePP(event)">${esc(ffxPeriodLabel(pMode,pDate))} <span>${ppOpen?"&#9652;":"&#9662;"}</span></button><button class="hp-nav" aria-label="Next period" onclick="navPeriod(1,event)">&#9654;</button>${ppOpen?`<div class="pp-menu" onclick="event.stopPropagation()">${modes.map(([m,l])=>`<div class="pp-menu-item ${pMode===m?"active":""}" onclick="closePP();setPMode('${m}')"><span style="font-size:14px">${pMode===m?"&#9679;":"&#9675;"}</span>${l}</div>`).join("")}</div>`:""}`;
-}
 function ffxCustomizeHome(){closeSettings();goTo("dashboard");homeCustomize=true;render();}
 function ffxAppearanceExtras(){
   return`<span class="st-label" style="margin-top:16px">Home screen</span>
     <button class="btn btn-g w100 mb6" style="justify-content:center" onclick="ffxCustomizeHome()">&#9881; Rearrange or hide Home cards</button>
     <div class="fz10 muted mb16">Reorder, hide or bring back the cards on Home. Tap Done at the top of Home when finished.</div>
     <div class="fz10 muted">Language, tone, vibration and Lite mode are under <b>Settings › Preferences</b>.</div>`;
+}
+
+
+// ════════════════ Shared period model: month start day, custom range, all time ════════════════
+function ffxMonthStart(){const d=Number(ffx&&ffx.monthStart);return d>=1&&d<=28?Math.floor(d):1;}
+function ffxAllBounds(){
+  let min=null,max=null;for(const t of txns){if(!FinanceCore.date(t.date))continue;if(min===null||t.date<min)min=t.date;if(max===null||t.date>max)max=t.date;}
+  const today=toLocalISODate(new Date());if(min===null)min=today;if(max===null||max<today)max=today;
+  return{start:FinanceCore.date(min),end:FinanceCore.date(max)};
+}
+function ffxCustomRange(){
+  const c=ffx&&ffx.custom;
+  if(c&&FinanceCore.date(c.from)&&FinanceCore.date(c.to)&&c.from<=c.to)return{start:FinanceCore.date(c.from),end:FinanceCore.date(c.to)};
+  const e=new Date(),s=new Date();s.setDate(s.getDate()-29);
+  return{start:new Date(s.getFullYear(),s.getMonth(),s.getDate()),end:new Date(e.getFullYear(),e.getMonth(),e.getDate())};
+}
+function ffxPrevRange(mode,date){
+  if(mode==="all")return null;
+  if(mode==="custom"){
+    const c=ffxCustomRange(),cs=toLocalISODate(c.start),len=ffxDaysBetween(cs,toLocalISODate(c.end))+1;
+    const s=FinanceCore.date(ffxAddDays(cs,-len)),e=FinanceCore.date(ffxAddDays(cs,-1));
+    return{start:s,end:e,startStr:toLocalISODate(s),endStr:toLocalISODate(e)};
+  }
+  const a=new Date(getRangeFor(mode,date).start);
+  if(mode==="week")a.setDate(a.getDate()-7);else if(mode==="month")a.setMonth(a.getMonth()-1);else if(mode==="quarter")a.setMonth(a.getMonth()-3);else a.setFullYear(a.getFullYear()-1);
+  return getRangeFor(mode,a);
+}
+function ffxShortDate(d){return d.getDate()+" "+MO[d.getMonth()];}
+function ffxPeriodLabel(mode,date){
+  const d=new Date(date);
+  if(mode==="all")return"All time";
+  if(mode==="custom"){const c=ffxCustomRange(),y=new Date().getFullYear();return ffxShortDate(c.start)+(c.start.getFullYear()!==y?" "+c.start.getFullYear():"")+" – "+ffxShortDate(c.end)+(c.end.getFullYear()!==y?" "+c.end.getFullYear():"");}
+  if(mode==="week"){const r=getRangeFor("week",d),a=r.start,b=r.end;return a.getMonth()===b.getMonth()?`${a.getDate()}–${b.getDate()} ${MO[b.getMonth()]}`:`${a.getDate()} ${MO[a.getMonth()]}–${b.getDate()} ${MO[b.getMonth()]}`;}
+  if(mode==="month"){if(ffxMonthStart()>1){const r=getRangeFor("month",d);return ffxShortDate(r.start)+"–"+ffxShortDate(r.end);}return MO[d.getMonth()]+" "+d.getFullYear();}
+  if(mode==="quarter")return"Q"+(Math.floor(d.getMonth()/3)+1)+" "+d.getFullYear();
+  return String(d.getFullYear());
+}
+// Budgets have their own per-budget periods, so "All time" / "Custom" don't apply there: show months.
+function ffxEffMode(){return V==="budgets"&&(pMode==="all"||pMode==="custom")?"month":pMode;}
+function ffxNavPeriod(dir){
+  const mode=ffxEffMode();
+  if(mode==="all")return;
+  if(mode==="custom"){
+    const c=ffxCustomRange(),a=toLocalISODate(c.start),b=toLocalISODate(c.end),len=ffxDaysBetween(a,b)+1;
+    ffx.custom={from:ffxAddDays(a,dir*len),to:ffxAddDays(b,dir*len)};ffxSave();ppOpen=false;render();return;
+  }
+  let d=new Date(pDate);
+  if(mode==="week")d.setDate(d.getDate()+dir*7);
+  else if(mode==="month"){d=new Date(getRangeFor("month",d).start);d.setMonth(d.getMonth()+dir);}
+  else if(mode==="quarter"){d.setDate(1);d.setMonth(d.getMonth()+dir*3);}
+  else d.setFullYear(d.getFullYear()+dir);
+  pDate=d;ppOpen=false;render();
+}
+function ffxPickMode(m){if(m==="custom"){ppOpen=false;ffxOpenRange();return;}closePP();setPMode(m);}
+function ffxOpenRange(){
+  const c=ffxCustomRange();
+  $("modal-container").innerHTML=`<div class="modal-bg" onclick="showModal('close')"><div class="modal" onclick="event.stopPropagation()"><div class="modal-handle"></div>
+    <div class="flex-b mb12"><span class="fz16 fw7">Custom date range</span><button class="btn" style="padding:2px;color:var(--muted)" onclick="showModal('close')">&#10005;</button></div>
+    <div class="grid2" style="gap:10px"><div><span class="edit-label">From</span><input class="inp" type="date" id="rngFrom" value="${toLocalISODate(c.start)}"></div><div><span class="edit-label">To</span><input class="inp" type="date" id="rngTo" value="${toLocalISODate(c.end)}"></div></div>
+    <div class="ffx-hchips mt8">${[["Last 7 days",7],["Last 30 days",30],["Last 90 days",90],["Year to date","ytd"],["Last year","ly"]].map(([l,v])=>`<button class="ffx-hchip" onclick="ffxRangePreset('${v}')">${l}</button>`).join("")}</div>
+    <div id="rngMsg" class="fz11 red mt8"></div>
+    <button class="btn btn-p w100 mt12" style="justify-content:center;padding:13px" onclick="ffxApplyRange()">Apply</button></div></div>`;
+}
+function ffxRangePreset(v){
+  const today=new Date();let a,b=toLocalISODate(today);
+  if(v==="ytd")a=today.getFullYear()+"-01-01";
+  else if(v==="ly"){a=(today.getFullYear()-1)+"-01-01";b=(today.getFullYear()-1)+"-12-31";}
+  else a=ffxAddDays(b,-(Number(v)-1));
+  $("rngFrom").value=a;$("rngTo").value=b;
+}
+function ffxApplyRange(){
+  const a=$("rngFrom").value,b=$("rngTo").value;
+  if(!FinanceCore.date(a)||!FinanceCore.date(b))return $("rngMsg").textContent="Pick both dates.";
+  if(a>b)return $("rngMsg").textContent="The start date must be before the end date.";
+  ffx.custom={from:a,to:b};ffxSave();pMode="custom";ppOpen=false;showModal("close");render();haptic("light");
+}
+function setMonthStart(d){
+  d=Math.max(1,Math.min(28,Math.floor(Number(d))||1));ffx.monthStart=d;ffxSave();pDate=new Date();
+  haptic("light");render();if(settingsOpen)renderSettings();
+  showToast(d===1?"Months start on the 1st":"Months now run from the "+d+ffxOrd(d),"green");
+}
+const ffxOrd=n=>{const v=n%100;return["th","st","nd","rd"][(v-20)%10]||["th","st","nd","rd"][v]||"th";};
+function ffxHeaderUpdate(){
+  const t=$("hdrTitle"),sub=$("txCount"),per=$("hdrPeriod");if(!t||!sub||!per)return;
+  const first=(profile.name||"").trim().split(/\s+/)[0];
+  if(V==="dashboard"&&first){t.textContent=T("Hi")+", "+first;sub.textContent=new Date().toLocaleDateString("en-NG",{weekday:"long",day:"numeric",month:"short"});}
+  else{t.textContent=FFX_PAGE_TITLES[V]?T(FFX_PAGE_TITLES[V]):"FinanceFlow";sub.textContent="FinanceFlow";}
+  const show=["dashboard","stats","transactions","budgets"].includes(V)&&!(cmpMode&&(V==="stats"||V==="budgets"))&&!needsOnboarding();
+  per.hidden=!show;if(!show)return;
+  const mode=ffxEffMode(),isAll=mode==="all";
+  const modes=[["week","Week"],["month","Month"],["quarter","Quarter"],["year","Year"]].concat(V==="budgets"?[]:[["all","All time"],["custom","Custom range…"]]);
+  const nav=(dir,ch,lbl)=>isAll?`<span class="hp-nav" style="visibility:hidden"></span>`:`<button class="hp-nav" aria-label="${lbl}" onclick="navPeriod(${dir},event)">${ch}</button>`;
+  per.innerHTML=nav(-1,"&#9664;","Previous period")+`<button class="hp-label" aria-haspopup="true" aria-expanded="${ppOpen}" onclick="togglePP(event)">${esc(ffxPeriodLabel(mode,pDate))} <span>${ppOpen?"&#9652;":"&#9662;"}</span></button>`+nav(1,"&#9654;","Next period")+(ppOpen?`<div class="pp-menu" onclick="event.stopPropagation()">${modes.map(([m,l])=>`<div class="pp-menu-item ${mode===m?"active":""}" onclick="ffxPickMode('${m}')"><span style="font-size:14px">${mode===m?"&#9679;":"&#9675;"}</span>${l}</div>`).join("")}</div>`:"");
+}
+
+function ffxOutsideHint(){
+  if(ffxHist.allTime||!search||!search.trim())return"";
+  const r=getRangeFor(pMode,pDate),q=search.toLowerCase();
+  const hit=t=>(t.description||"").toLowerCase().includes(q)||(t.category||"").toLowerCase().includes(q)||(t.subcategory||"").toLowerCase().includes(q)||(t.tags||[]).some(x=>x.toLowerCase().includes(q));
+  const n=txns.filter(t=>(t.date<r.startStr||t.date>r.endStr)&&hit(t)).length;
+  return n?`<div class="ffx-hint">${n} more match${n===1?"":"es"} for “${esc(search)}” outside this period <button class="ffx-link" onclick="ffxHist.allTime=true;render()">Search all time</button></div>`:"";
+}
+function ffxMonthStartHTML(){
+  const D=ffxMonthStart(),r=getRangeFor("month",new Date());
+  return`<div class="card mb12"><div class="fz12 fw7 mb6">Month starts on</div><div class="fz10 muted mb8">If you're paid on the 25th, start your month on the 25th so budgets and reports follow your pay cycle.</div>
+    <select class="inp" aria-label="Month start day" onchange="setMonthStart(this.value)">${Array.from({length:28},(_,i)=>i+1).map(d=>`<option value="${d}" ${d===D?"selected":""}>${d===1?"1st (calendar month)":d+ffxOrd(d)}</option>`).join("")}</select>
+    <div class="fz10 muted mt6">Current period: <b>${ffxShortDate(r.start)} – ${ffxShortDate(r.end)}</b>. Trend charts on Home still use calendar months.</div></div>`;
+}
+
+// ════════════════ Budgets: pace, summary, unbudgeted spending, edit-in-place ════════════════
+const ffxAlertWarn=()=>{const v=Number(ffx.prefs&&ffx.prefs.alertWarn);return v>=50&&v<=95?v:80;};
+function setAlertWarn(v){ffx.prefs=ffx.prefs||{};ffx.prefs.alertWarn=Number(v);ffxSave();haptic("light");showToast("Budget alerts start at "+v+"%","green");}
+function ffxBudgetPace(b,bp,date){
+  const r=getRangeFor(bp,date),today=ffxToday(),total=ffxDaysBetween(r.startStr,r.endStr)+1;
+  const cur=today>=r.startStr&&today<=r.endStr;
+  const elapsed=today<r.startStr?0:today>r.endStr?total:ffxDaysBetween(r.startStr,today)+1;
+  const eff=budgetEffLimit(b,bp,date),spent=budgetSpent(b,bp,date),frac=total?elapsed/total:0,spentFrac=eff>0?spent/eff:0;
+  const over=eff>0&&spent>eff;
+  const state=over?"over":cur&&(spentFrac>frac+0.10||(spentFrac>=0.95&&frac<1))?"ahead":"ok";
+  const daysLeft=cur?total-elapsed+1:0;
+  return{eff,spent,pct:eff>0?spent/eff*100:0,frac,state,cur,daysLeft,total,elapsed,perDay:cur&&eff>spent&&daysLeft>0?(eff-spent)/daysLeft:0,projected:cur&&elapsed>=3&&spent>0?spent/elapsed*total:null};
+}
+const ffxStateColor=(state,spent)=>state==="over"?"var(--red)":state==="ahead"?"var(--warn)":spent>0?"var(--green)":"var(--accent)";
+// used by the Home budget list too: colour by pace, not by fixed 80% / 50% thresholds
+function ffxBudgetColor(bp,date,pct,over){
+  if(over)return"var(--red)";
+  const r=getRangeFor(bp,date),today=ffxToday();if(today<r.startStr||today>r.endStr)return pct>0?"var(--green)":"var(--accent)";
+  const total=ffxDaysBetween(r.startStr,r.endStr)+1,frac=(ffxDaysBetween(r.startStr,today)+1)/total;
+  return pct/100>frac+0.10?"var(--warn)":pct>0?"var(--green)":"var(--accent)";
+}
+function ffxBudFilter(k){ffxState.budFilter=ffxState.budFilter===k?"":k;haptic("light");render();}
+function ffxBudgetCard(x,i){
+  const {b,P}=x,bp=b.period||"month",base=budgetBaseLimit(b),col=ffxStateColor(P.state,P.spent);
+  const isRollup=!(b.limit>0)&&(b.subs||[]).reduce((s,y)=>s+(y.limit||0),0)>0,isE=exCats["b_"+b.id],hs=b.subs&&b.subs.length>0;
+  const sub=hs&&isE?`<div class="exp-cat-subs" style="margin-top:10px;padding:8px 0 0 0;border-top:1px solid var(--border)">${b.subs.map(s=>{const ss=getSpent(bp,pDate,b.cat,s.name),sp=s.limit>0?ss/s.limit:0,so=s.limit>0&&ss>s.limit,st=so?"over":P.cur&&sp>P.frac+0.10?"ahead":"ok",sc=ffxStateColor(st,ss);return`<div class="mb8"><div class="flex-b fz10"><span class="muted">${esc(s.name)}</span><span><span style="color:${sc}">${fmtK(ss)}</span> / ${fmtK(s.limit)}</span></div><div class="bar-track"><div class="bar-fill" style="width:${Math.min(100,sp*100)}%;background:${sc}"></div></div></div>`;}).join("")}</div>`:"";
+  const paceLine=!P.cur?"":P.state==="over"?`<span class="red fw7">▲ Over budget</span>`:P.state==="ahead"?`<span class="warn fw7">▲ Ahead of pace</span>${P.projected?` · on course for ${fmtK(P.projected)}`:""}`:`<span class="green fw7">✓ On pace</span>${P.perDay>0?` · ${fmtK(P.perDay)}/day for ${P.daysLeft} day${P.daysLeft===1?"":"s"}`:""}`;
+  return`<div class="card anim-card ffx-bcard ${P.state}" style="animation-delay:${i*45}ms"><div class="flex-b" style="cursor:pointer" onclick="toggleCat('b_${b.id}')"><div class="flex g6" style="min-width:0"><div class="cat-dot" style="background:${clr(b.cat)}"></div><span class="fw7 fz13 ellip">${esc(b.cat)}</span><span class="rec-badge">${PERIOD_LABELS[bp]}</span>${b.rollover?`<span class="rec-badge" title="Carry starts ${esc(b.rolloverStart||"")}">&#8635;</span>`:""}<span class="fz10 muted">${hs?isE?"&#9650;":"&#9660;":""}</span></div><div class="flex g6"><button class="btn btn-g btn-sm" style="padding:4px 8px" onclick="event.stopPropagation();viewBudgetTx('${escJs(b.cat)}')" title="View transactions" aria-label="View ${esc(b.cat)} transactions">&#128269;</button><button class="ffx-limit" onclick="event.stopPropagation();ffxEditBudget('${escJs(b.id)}')" aria-label="Edit ${esc(b.cat)} budget">${base>0?fmt(P.eff):"Set limit"} ✎</button></div></div>
+    ${base>0?`<div class="flex-b fz10 muted mt4 mb4"><span style="color:${col}">${fmt(P.spent)} spent</span><span>${Math.round(P.pct)}% · ${P.state==="over"?"Over "+fmtK(P.spent-P.eff):fmtK(P.eff-P.spent)+" left"}</span></div><div class="bar-track ffx-bt"><div class="bar-fill" style="width:${Math.min(100,P.pct)}%;background:${col};height:100%"></div>${P.cur&&P.frac<1?`<i class="ffx-tick" style="left:${P.frac*100}%" title="Where you'd be if spending were even"></i>`:""}</div>${paceLine?`<div class="fz10 mt6">${paceLine}</div>`:""}${isRollup?`<div class="fz9 muted mt4">Total of ${b.subs.length} subcategory limit${b.subs.length>1?"s":""} below</div>`:""}`:`<div class="fz10 muted mt4 mb4">${fmt(P.spent)} spent · no limit set</div>`}${sub}</div>`;
+}
+function ffxBudgetSummaryHTML(items){
+  const act=items.filter(x=>x.P.eff>0);if(!act.length)return"";
+  const limit=act.reduce((s,x)=>s+x.P.eff,0),spent=act.reduce((s,x)=>s+x.P.spent,0),left=limit-spent;
+  const perDay=act.reduce((s,x)=>s+x.P.perDay,0),frac=act.reduce((s,x)=>s+x.P.eff*x.P.frac,0)/limit,pct=limit>0?spent/limit*100:0;
+  const st=left<0?"over":pct/100>frac+0.10?"ahead":"ok",col=ffxStateColor(st,spent);
+  const cnt={over:items.filter(x=>x.P.state==="over").length,ahead:items.filter(x=>x.P.state==="ahead").length,ok:items.filter(x=>x.P.state==="ok"&&x.P.eff>0).length};
+  const f=ffxState.budFilter||"";
+  const chip=(k,l,n,cls)=>`<button class="ffx-hchip ${f===k?"on":""} ${cls||""}" aria-pressed="${f===k}" onclick="ffxBudFilter('${k}')">${l} <i>${n}</i></button>`;
+  return`<div class="card ffx-bsum ${st}"><div class="ffx-eyebrow">${left>=0?"Left across your budgets":"Over across your budgets"}</div>
+    <div class="ffx-left ${left<0?"bad":st==="ahead"?"warn":"good"}">${fmt(Math.abs(left))}</div>
+    <div class="fz11 muted">${left>=0&&perDay>0?`<b class="${st==="ahead"?"warn":"green"}">${fmtK(perDay)}/day</b> available · `:""}${st==="over"?"▲ over your plan":st==="ahead"?"▲ spending faster than planned":"✓ on pace"}</div>
+    <div class="bar-track ffx-bt mt8"><div class="bar-fill" style="width:${Math.min(100,pct)}%;background:${col};height:100%"></div>${frac<1?`<i class="ffx-tick" style="left:${frac*100}%"></i>`:""}</div>
+    <div class="flex-b fz10 muted mt4"><span>${fmtK(spent)} spent of ${fmtK(limit)}</span><span>${Math.round(pct)}% used</span></div>
+    <div class="ffx-hchips" style="padding-top:10px">${chip("over","▲ Over",cnt.over,"bad")}${chip("ahead","⚠ Ahead of pace",cnt.ahead,"warnc")}${chip("ok","✓ On pace",cnt.ok)}</div></div>`;
+}
+function ffxQuickLimit(cat){
+  const per=[ffxMonthRange(-1),ffxMonthRange(-2),ffxMonthRange(-3)];let tot=0,n=0;
+  per.forEach(p=>{const v=txns.filter(t=>t.type==="expense"&&t.category===cat&&t.date>=p.start&&t.date<=p.end).reduce((s,t)=>s+ffxPA(t),0);if(v>0){tot+=v;n++;}});
+  const r=getRangeFor("month",pDate),cur=txns.filter(t=>t.type==="expense"&&t.category===cat&&t.date>=r.startStr&&t.date<=r.endStr).reduce((s,t)=>s+ffxPA(t),0);
+  const avg=n?tot/n:cur*1.1;if(!(avg>0))return 0;const step=avg<10000?1000:avg<100000?5000:10000;return Math.ceil(avg/step)*step;
+}
+function ffxSuggestBudgets(){
+  const EC=getEC(),have=new Set(budgets.map(b=>b.cat)),cats=[...new Set(txns.filter(t=>t.type==="expense"&&Object.hasOwn(EC,t.category)).map(t=>t.category))].filter(c=>!have.has(c));
+  const rows=cats.map(c=>[c,ffxQuickLimit(c)]).filter(([,l])=>l>0).sort((a,b)=>b[1]-a[1]).slice(0,10);
+  if(!rows.length)return showToast("No spending history to base budgets on yet","warn");
+  if(!confirm("Create "+rows.length+" monthly budget"+(rows.length>1?"s":"")+" from your recent average spending?\n\n"+rows.map(([c,l])=>c+": "+fmt(l)).join("\n")))return;
+  rows.forEach(([c,l])=>budgets.push({id:uid(),cat:c,limit:l,period:"month",subs:[]}));save();render();haptic("success");showToast("🎯 "+rows.length+" budgets created","green");
+}
+function ffxUnbudgetedHTML(){
+  const mode=["week","month","quarter","year"].includes(pMode)?pMode:"month",r=getRangeFor(mode,pDate),have=new Set(budgets.map(b=>b.cat));
+  const spent={};let total=0,unb=0;
+  txns.filter(t=>t.type==="expense"&&t.date>=r.startStr&&t.date<=r.endStr).forEach(t=>{const v=ffxPA(t);total+=v;if(!have.has(t.category)){spent[t.category]=(spent[t.category]||0)+v;unb+=v;}});
+  const rows=Object.entries(spent).sort((a,b)=>b[1]-a[1]).slice(0,6);
+  if(!rows.length)return budgets.length&&total>0?`<div class="fz10 muted tac mt8">✓ Every category you spent in has a budget.</div>`:"";
+  return`<div class="card"><div class="flex-b mb4"><span class="fz12 fw7">Spending without a budget</span><span class="fz11 fw7">${fmt(unb)}</span></div><div class="fz10 muted mb8">${total>0?Math.round(unb/total*100):0}% of this period's spending isn't covered by a budget.</div>
+    ${rows.map(([c,v])=>`<div class="ffx-row"><div class="flex g8" style="min-width:0"><span class="cat-dot" style="background:${clr(c)}"></span><div style="min-width:0"><div class="fz12 fw6 ellip">${catIcon(c)} ${esc(c)}</div><div class="fz10 muted">${fmt(v)}</div></div></div><button class="btn btn-sm btn-g" onclick="ffxEditBudget(null,'${escJs(c)}')">Set budget</button></div>`).join("")}
+    <button class="btn btn-g w100 mt8" style="justify-content:center" onclick="ffxSuggestBudgets()">✨ Create budgets from my average spending</button></div>`;
+}
+function ffxBudgetsBodyHTML(){
+  if(!budgets.length)return`<div class="card tac" style="padding:28px"><div style="font-size:32px;margin-bottom:8px">&#127919;</div><div class="fz13 fw6 mb4">No budgets yet</div><div class="fz11 muted mb12">Set spending limits to stay on track</div><div class="flex g6" style="justify-content:center"><button class="btn btn-p btn-sm" onclick="toggleBudgetManage()">+ Create Budget</button><button class="btn btn-g btn-sm" onclick="ffxSuggestBudgets()">✨ Suggest from my spending</button></div></div>`+ffxUnbudgetedHTML();
+  const items=budgets.map(b=>({b,P:ffxBudgetPace(b,b.period||"month",pDate)}));
+  const f=ffxState.budFilter||"",shown=f?items.filter(x=>x.P.eff>0&&x.P.state===f):items;
+  return ffxBudgetSummaryHTML(items)+(shown.length?shown.map((x,i)=>ffxBudgetCard(x,i)).join(""):`<div class="empty-state mb12"><div class="fz12 fw7">No budgets match</div><button class="btn btn-g btn-sm mt8" onclick="ffxBudFilter('${f}')">Show all</button></div>`)+ffxUnbudgetedHTML();
+}
+function ffxEditBudget(id,newCat){
+  const b=id?budgets.find(x=>x.id===id):null;if(id&&!b)return;
+  const cat=b?b.cat:newCat,rollup=!!b&&!(b.limit>0)&&(b.subs||[]).length>0,sug=b?0:ffxQuickLimit(cat);
+  window._ebId=id||null;window._ebCat=cat;
+  $("modal-container").innerHTML=`<div class="modal-bg" onclick="showModal('close')"><div class="modal" onclick="event.stopPropagation()"><div class="modal-handle"></div>
+    <div class="flex-b mb12"><span class="fz16 fw7">${b?"Edit":"New"} budget · ${esc(cat)}</span><button class="btn" style="padding:2px;color:var(--muted)" onclick="showModal('close')">&#10005;</button></div>
+    ${rollup?`<div class="msg msg-ok fz11 mb8" style="display:block">This budget's limit is the sum of its subcategory limits. Change those under “Subcategories & more”.</div>`:""}
+    <span class="edit-label">Limit (${esc(currency.symbol)})</span><input class="inp mb8" id="ebLim" inputmode="decimal" ${rollup?"disabled":""} value="${b&&b.limit>0?esc(b.limit):sug||""}" placeholder="e.g. 50,000">
+    ${sug?`<div class="fz10 accent mb8">✨ Suggested from your recent spending</div>`:""}
+    <span class="edit-label">Resets</span><select class="inp mb8" id="ebPer">${Object.entries(PERIOD_LABELS).map(([k,v])=>`<option value="${k}" ${(b?b.period||"month":"month")===k?"selected":""}>${v}</option>`).join("")}</select>
+    <label class="flex g6 fz12 mb12"><input type="checkbox" id="ebRoll" ${b&&b.rollover?"checked":""}> Carry unspent (or overspent) money into the next period</label>
+    <button class="btn btn-p w100" style="justify-content:center;padding:13px" onclick="ffxSaveBudget()">Save</button>
+    <div class="flex g6 mt8">${b?`<button class="btn btn-g" style="flex:1;justify-content:center" onclick="showModal('close');budgetManageOpen=true;expandedBudget='${escJs(b.id)}';render()">Subcategories & more</button><button class="btn btn-rd" onclick="showModal('close');deleteBudget('${escJs(b.id)}')">Delete</button>`:""}</div></div></div>`;
+  setTimeout(()=>{const i=$("ebLim");if(i&&!i.disabled)i.focus();},250);
+}
+function ffxSaveBudget(){
+  const id=window._ebId,cat=window._ebCat,per=$("ebPer").value,roll=$("ebRoll").checked,raw=$("ebLim");
+  let b=id?budgets.find(x=>x.id===id):null;
+  const lim=raw.disabled?(b?b.limit:0):parseAmount(raw.value);
+  if(!raw.disabled&&!(lim>0))return alert("Enter a limit above zero");
+  if(b){
+    const before=JSON.stringify([b.limit,b.period,b.rollover]);
+    if(!raw.disabled)b.limit=lim;b.period=per;b.rollover=roll;
+    if(before!==JSON.stringify([b.limit,b.period,b.rollover])){b.rolloverStart=getRangeFor(per,new Date()).startStr;b.rolloverPeriod=per;}
+  }else{
+    if(budgets.some(x=>x.cat===cat))return alert("A budget for this category already exists");
+    b={id:uid(),cat,limit:lim,period:per,rollover:roll,subs:[]};if(roll){b.rolloverStart=getRangeFor(per,new Date()).startStr;b.rolloverPeriod=per;}budgets.push(b);
+  }
+  save();showModal("close");render();haptic("success");showToast("🎯 Budget saved","green");
+}
+
+function ffxBudgetAlertHTML(){
+  return`<div class="card mb12"><div class="fz12 fw7 mb6">Budget alerts</div><div class="fz10 muted mb8">Get a warning when a budget reaches this share of its limit. You always get one when it's exceeded.</div>
+    <select class="inp" aria-label="Budget alert threshold" onchange="setAlertWarn(this.value)">${[50,60,70,75,80,85,90,95].map(v=>`<option value="${v}" ${ffxAlertWarn()===v?"selected":""}>${v}% of the limit</option>`).join("")}</select></div>`;
+}
+
+function ffxBudgetPill(cat){
+  if(typeof statsType==="undefined"||statsType!=="expense")return"";
+  const b=budgets.find(x=>x.cat===cat&&budgetBaseLimit(x)>0);if(!b)return"";
+  const P=ffxBudgetPace(b,b.period||"month",pDate);return`<span class="ffx-bpill ${P.state}">${Math.round(P.pct)}% of budget</span>`;
+}
+function ffxCashFlowHTML(type,d){
+  if(type!=="expense"&&type!=="income")return"";
+  const r=d.r,inc=txns.filter(t=>t.type==="income"&&t.date>=r.startStr&&t.date<=r.endStr).reduce((s,t)=>s+ffxPA(t),0);
+  const expList=txns.filter(t=>t.type==="expense"&&t.date>=r.startStr&&t.date<=r.endStr),exp=expList.reduce((s,t)=>s+ffxPA(t),0);
+  if(!(inc>0)&&!(exp>0))return"";
+  const cats={};expList.forEach(t=>cats[t.category]=(cats[t.category]||0)+ffxPA(t));
+  const top=Object.entries(cats).sort((a,b)=>b[1]-a[1]).slice(0,5),topSum=top.reduce((s,x)=>s+x[1],0),other=exp-topSum,saved=inc-exp;
+  const base=Math.max(inc,exp,1);
+  const seg=top.map(([c,v])=>({l:c,v,c:clr(c)}));if(other>0.5)seg.push({l:"Other spending",v:other,c:"var(--muted)"});if(saved>0)seg.push({l:"Saved",v:saved,c:"var(--green)"});
+  return`<div class="card"><div class="flex-b mb4"><span class="fz12 fw7">Where your income went</span><span class="fz10 muted">${fmtK(inc)} in · ${fmtK(exp)} out</span></div>
+    <div class="ffx-flow mb10" role="img" aria-label="Income split into spending and savings">${seg.map(x=>`<div style="flex:${x.v/base};background:${x.c}" title="${esc(x.l)}"></div>`).join("")}</div>
+    ${seg.map(x=>`<div class="ffx-row" style="padding:6px 0"><span class="fz11"><span class="cat-dot" style="display:inline-block;background:${x.c};margin-right:6px"></span>${esc(x.l)}</span><span class="fz11 fw7">${fmtK(x.v)} <span class="muted fw6">· ${base>0?Math.round(x.v/(inc>0?inc:exp)*100):0}%</span></span></div>`).join("")}
+    ${saved<0?`<div class="fz11 red fw7 mt6">▲ You spent ${fmt(-saved)} more than you earned in this period.</div>`:inc>0?`<div class="fz11 green fw7 mt6">✓ You kept ${Math.round(saved/inc*100)}% of your income.</div>`:""}</div>`;
+}
+function ffxBudgetCheckHTML(type){
+  if(type!=="expense"||!budgets.length)return"";
+  const rows=budgets.filter(b=>budgetBaseLimit(b)>0).map(b=>({b,P:ffxBudgetPace(b,b.period||"month",pDate)})).sort((a,b)=>b.P.pct-a.P.pct).slice(0,5);
+  if(!rows.length)return"";
+  return`<div class="card"><div class="flex-b mb8"><span class="fz12 fw7">Against your budgets</span><button class="ffx-link" onclick="goTo('budgets')">All budgets ›</button></div>${rows.map(({b,P})=>{const col=ffxStateColor(P.state,P.spent);return`<button class="ffx-prow" onclick="goTo('budgets')"><div class="flex-b"><span class="fz12 fw6 ellip">${esc(b.cat)}</span><span class="fz11 fw7" style="color:${col}">${Math.round(P.pct)}%</span></div><div class="bar-track ffx-bt mt4"><div class="bar-fill" style="width:${Math.min(100,P.pct)}%;background:${col};height:100%"></div>${P.cur&&P.frac<1?`<i class="ffx-tick" style="left:${P.frac*100}%"></i>`:""}</div><div class="fz9 muted mt4">${fmtK(P.spent)} of ${fmtK(P.eff)}${P.state==="over"?" · over budget":""}</div></button>`;}).join("")}</div>`;
+}
+function ffxSetStatsBy(k){ffxState.statsBy=k;haptic("light");render();}
+function ffxBreakdownHTML(type,d){
+  const by=ffxState.statsBy||"account",isExp=type==="expense",m={};
+  d.list.forEach(t=>{const v=ffxPA(t);if(by==="account"){const k=accName(t.accountId)||"Unknown";m[k]=(m[k]||0)+v;}else{const tg=t.tags&&t.tags.length?t.tags:["(no tag)"];tg.forEach(x=>m[x]=(m[x]||0)+v);}});
+  const rows=Object.entries(m).sort((a,b)=>b[1]-a[1]).slice(0,8),max=rows[0]?rows[0][1]:1;
+  return`<div class="card"><div class="flex-b mb8"><span class="fz12 fw7">Breakdown by</span><div class="tab-row" style="width:160px"><button class="tab-btn ${by==="account"?"active":""}" onclick="ffxSetStatsBy('account')">Account</button><button class="tab-btn ${by==="tag"?"active":""}" onclick="ffxSetStatsBy('tag')">Tag</button></div></div>
+    ${rows.length?rows.map(([k,v])=>`<div class="ffx-prow" style="cursor:default"><div class="flex-b"><span class="fz12 fw6 ellip">${esc(k)}</span><span class="fz12 fw7">${fmt(v)}</span></div><div class="bar-track mt4"><div class="bar-fill" style="width:${v/max*100}%;background:${isExp?"var(--red)":"var(--green)"};opacity:.7"></div></div></div>`).join(""):`<div class="fz11 muted">Nothing to show.</div>`}${by==="tag"?`<div class="fz9 muted mt6">An entry with several tags counts under each one.</div>`:""}</div>`;
+}
+function ffxExportStatsCsv(){
+  const type=statsType,d=ffxStatsData(type,pMode,pDate),m={};
+  d.list.forEach(t=>{const k=(t.category||"")+"\u0001"+(t.subcategory||"");const o=m[k]=m[k]||{c:t.category||"",s:t.subcategory||"",total:0,n:0};o.total+=ffxPA(t);o.n++;});
+  const q=v=>{let s=String(v??"");if(/^[=+\-@\t\r]/.test(s)&&isNaN(Number(s)))s="'"+s;return'"'+s.replace(/"/g,'""')+'"';};
+  const rows=[["Category","Subcategory","Total ("+currency.code+")","Entries","Share %"],...Object.values(m).sort((a,b)=>b.total-a.total).map(o=>[o.c,o.s,o.total.toFixed(2),o.n,d.total>0?(o.total/d.total*100).toFixed(1):"0"])];
+  saveOrDownload("financeflow-"+type+"-"+ffxPeriodLabel(pMode,pDate).replace(/[^a-z0-9]+/gi,"-").toLowerCase()+".csv",rows.map(r=>r.map(q).join(",")).join("\n"),"text/csv");
+}
+
+// ── History: grouping, saved filters, new-since-visit, duplicates, bulk tags ──
+function ffxGroupKey(t){
+  if(ffxHist.group==="week"){const d=FinanceCore.date(t.date);return d?getRangeFor("week",d).startStr:t.date;}
+  if(ffxHist.group==="cat")return t.type==="transfer"?"Transfers":(t.category||"Uncategorised");
+  return t.date;
+}
+function ffxGroupOrder(keys,groups){
+  if(ffxHist.group==="cat"){const tot=k=>groups[k].reduce((s,t)=>s+(t.type==="transfer"?0:ffxPA(t)),0);return keys.sort((a,b)=>tot(b)-tot(a));}
+  return keys.sort((a,b)=>ffxHist.sort==="old"?a.localeCompare(b):b.localeCompare(a));
+}
+function ffxGroupLabel(k){
+  if(ffxHist.group==="week"){const d=FinanceCore.date(k);return d?"Week of "+ffxShortDate(d):k;}
+  if(ffxHist.group==="cat")return(k==="Transfers"?"⇄ ":catIcon(k)+" ")+k;
+  return fmtD(k);
+}
+function ffxSaveFilter(){
+  const name=prompt("Name this filter",fCat!=="all"?fCat:search||"My filter");if(!name||!name.trim())return;
+  ffx.savedFilters=ffx.savedFilters||[];
+  ffx.savedFilters.push({id:uid(),name:name.trim().slice(0,20),type:fType,cat:fCat,acc:fAcc,search,min:ffxHist.min,max:ffxHist.max,flag:ffxHist.flag,sort:ffxHist.sort,group:ffxHist.group,allTime:ffxHist.allTime});
+  if(ffx.savedFilters.length>10)ffx.savedFilters.shift();
+  save();haptic("success");showToast("★ Filter saved","green");render();
+}
+function ffxApplySaved(id){
+  const f=(ffx.savedFilters||[]).find(x=>x.id===id);if(!f)return;
+  fType=f.type||"all";fCat=f.cat||"all";fAcc=f.acc||"all";search=f.search||"";
+  Object.assign(ffxHist,{min:f.min||"",max:f.max||"",flag:f.flag||"",sort:f.sort||"new",group:f.group||"day",allTime:!!f.allTime});
+  haptic("light");render();
+}
+function ffxManageSaved(){
+  $("modal-container").innerHTML=`<div class="modal-bg" onclick="showModal('close')"><div class="modal" onclick="event.stopPropagation()"><div class="modal-handle"></div><div class="flex-b mb12"><span class="fz16 fw7">Saved filters</span><button class="btn" style="padding:2px;color:var(--muted)" onclick="showModal('close')">&#10005;</button></div>
+    ${(ffx.savedFilters||[]).map(sf=>`<div class="ffx-row"><span class="fz13 fw6">★ ${esc(sf.name)}</span><button class="btn btn-rd btn-sm" onclick="ffxDeleteSaved('${escJs(sf.id)}')">Delete</button></div>`).join("")||'<div class="fz11 muted">None yet.</div>'}</div></div>`;
+}
+function ffxDeleteSaved(id){ffx.savedFilters=(ffx.savedFilters||[]).filter(x=>x.id!==id);save();showModal("close");render();}
+function ffxCreatedAt(t){const m=/^([0-9a-z]{8})[0-9a-z]{5}$/.exec(String(t.id||""));if(!m)return 0;const v=parseInt(m[1],36);return v>1.5e12&&v<4.2e12?v:0;}
+const ffxIsNew=t=>ffxSince>0&&(t.needsReview||t.source||t.bankAlertId)&&ffxCreatedAt(t)>ffxSince;
+function ffxInitVisit(){
+  try{ffxSince=Number(appStorage.getItem("ffd_lastseen"))||0;}catch(e){}
+  const stamp=()=>{try{appStorage.setItem("ffd_lastseen",String(Date.now()));}catch(e){}};
+  if(!ffxSince)stamp();
+  document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="hidden"){stamp();ffxHiddenAt=Date.now();}});
+  window.addEventListener("pagehide",()=>{stamp();ffxHiddenAt=Date.now();});
+  window.ffxOnPause=()=>{stamp();ffxHiddenAt=Date.now();};
+}
+function ffxDupIds(){
+  if(ffxDupMemo)return ffxDupMemo;
+  const ids=new Set(),by={};
+  txns.forEach(t=>{if(t.type==="transfer"||t.dupOk||t.splitGroupId||t.occurrenceKey)return;const k=t.accountId+"|"+t.type+"|"+Number(t.amount).toFixed(2);(by[k]=by[k]||[]).push(t);});
+  for(const list of Object.values(by)){
+    if(list.length<2)continue;list.sort((a,b)=>a.date.localeCompare(b.date));
+    for(let i=0;i<list.length;i++)for(let j=i+1;j<list.length;j++){
+      if(ffxDaysBetween(list[i].date,list[j].date)>1)break;
+      const a=ffxNormDesc(list[i].description),b=ffxNormDesc(list[j].description);
+      if(!a||!b||a===b||(a.length>=4&&b.includes(a))||(b.length>=4&&a.includes(b))){ids.add(list[i].id);ids.add(list[j].id);}
+    }
+  }
+  return ffxDupMemo=ids;
+}
+function ffxDupDismissAll(){const ids=ffxDupIds();txns.forEach(t=>{if(ids.has(t.id))t.dupOk=true;});ffxHist.flag="";save();render();showToast("Marked as not duplicates","green");}
+function ffxSelectAllShown(){if(selectedTxIds.size){selectedTxIds=new Set();}else getF().forEach(t=>selectedTxIds.add(t.id));render();}
+function ffxBulkTagsHTML(){
+  const tags=[...new Set([...(userTags||[]),...txns.flatMap(t=>t.tags||[])])].sort();
+  const opts=`<option value="">—</option>${tags.map(t=>`<option>${esc(t)}</option>`).join("")}`;
+  return`<div><div class="fz12 fw6 mb8">Tags (optional)</div><div class="grid2" style="gap:8px"><div><span class="edit-label">Add tag</span><input class="inp" id="bulkTagAdd" list="bulkTagList" placeholder="e.g. work"><datalist id="bulkTagList">${tags.map(t=>`<option value="${esc(t)}">`).join("")}</datalist></div><div><span class="edit-label">Remove tag</span><select class="inp" id="bulkTagRemove">${opts}</select></div></div></div>`;
+}
+
+// ── Projects: linked funding, milestones, templates, report, receipts ──
+const FFX_PROJ_TPL={
+  reno:{label:"🏠 Renovation",name:"Home renovation",desc:"Materials, labour and finishing",ms:["Plan & get quotes","Buy materials","Main work","Finishing","Final payment"]},
+  wedding:{label:"💍 Wedding",name:"Wedding",desc:"Venue, attire, catering and logistics",ms:["Set date & budget","Book venue","Attire","Catering","Wedding day"]},
+  trip:{label:"✈️ Trip",name:"Trip",desc:"Travel, stay and spending money",ms:["Book flights","Book stay","Visa & documents","Spending money","Travel day"]},
+  event:{label:"🎉 Event",name:"Event",desc:"Planning an event or party",ms:["Plan & budget","Book venue","Invite guests","Catering & drinks","Event day"]},
+  school:{label:"🎓 School fees",name:"School fees",desc:"Tuition, books and uniforms",ms:["Pay tuition","Books & uniforms","Transport"]},
+  biz:{label:"💼 Business",name:"Business project",desc:"Startup costs and operations",ms:["Registration","Equipment","Marketing","Launch"]}
+};
+function ffxProjTemplateChips(){
+  if(!$("projectName"))window._ffxProjTpl=null;
+  return`<div class="fz10 muted mb6">Start from a template (optional)</div><div class="ffx-tplrow">${Object.entries(FFX_PROJ_TPL).map(([k,t])=>`<button type="button" class="ffx-hchip ${window._ffxProjTpl===k?"on":""}" onclick="ffxProjTemplate('${k}')">${t.label}</button>`).join("")}</div>`;
+}
+function ffxProjTemplate(k){
+  const t=FFX_PROJ_TPL[k];if(!t)return;window._ffxProjTpl=k;
+  const n=$("projectName"),d=$("projectDescription");if(n&&!n.value.trim())n.value=t.name;if(d&&!d.value.trim())d.value=t.desc;
+  document.querySelectorAll(".ffx-tplrow .ffx-hchip").forEach(b=>b.classList.toggle("on",b.textContent.trim()===t.label));haptic("light");
+}
+function ffxProjectCreated(project){
+  const k=window._ffxProjTpl;window._ffxProjTpl=null;const t=FFX_PROJ_TPL[k];if(!t)return;
+  const a=FinanceCore.date(project.startDate),b=FinanceCore.date(project.expectedEndDate);
+  ffx.milestones=ffx.milestones||[];
+  t.ms.forEach((title,i)=>{let due="";if(a&&b&&b>a){const span=ffxDaysBetween(project.startDate,project.expectedEndDate);due=ffxAddDays(project.startDate,Math.round(span*(i+1)/t.ms.length));}ffx.milestones.push({id:uid(),projectId:project.id,title,due,done:false});});
+}
+const ffxLinkedFunding=pid=>txns.filter(t=>t.projectId===pid&&t.type==="income").reduce((s,t)=>s+ffxPA(t),0);
+function ffxAddProjectFunding(id){
+  const p=projects.find(x=>x.id===id);if(!p)return;
+  showModal("addtx");window._ffxFund=id;if(typeof setTT==="function")setTT("income");
+  const body=document.querySelector(".entry-modal .entry-body");
+  if(body&&!$("fundNote")){const n=document.createElement("div");n.id="fundNote";n.className="msg msg-ok fz11";n.style.display="block";n.textContent="💰 This income will count as funding for “"+p.name+"”.";body.parentElement.insertBefore(n,body);}
+}
+function ffxProjectFundingHTML(p){
+  const list=txns.filter(t=>t.projectId===p.id&&t.type==="income").sort((a,b)=>b.date.localeCompare(a.date)),typed=Number(p.fundedAmount)||0,linked=list.reduce((s,t)=>s+ffxPA(t),0);
+  if(!list.length&&!typed)return"";
+  return`<div class="fz11 fw7 mb6 mt12">Funding received</div><div class="fz10 muted mb6">${typed?`${fmt(typed)} entered on the project`:""}${typed&&linked?" + ":""}${linked?`${fmt(linked)} from linked income`:""}</div>${list.slice(0,4).map(t=>`<div class="ffx-row" style="padding:6px 0;cursor:pointer" onclick="showModal('edit','${escJs(t.id)}')"><span class="fz11">${fmtD(t.date)} · ${esc(t.description||"Funding")}</span><span class="fz11 fw7 green">+${fmtTxn(t)}</span></div>`).join("")}`;
+}
+// milestones
+function ffxMilestonesFor(pid){return(ffx.milestones||[]).filter(m=>m.projectId===pid);}
+function addMilestone(pid){
+  const t=($("msTitle")?.value||"").trim(),due=$("msDue")?.value||"";
+  if(!t)return alert("Give the milestone a name");if(due&&!FinanceCore.date(due))return alert("Pick a valid due date");
+  ffx.milestones=ffx.milestones||[];ffx.milestones.push({id:uid(),projectId:pid,title:t.slice(0,60),due,done:false});save();haptic("light");render();
+}
+function toggleMilestone(id){const m=(ffx.milestones||[]).find(x=>x.id===id);if(!m)return;m.done=!m.done;m.doneAt=m.done?ffxToday():"";save();haptic(m.done?"success":"light");render();}
+function deleteMilestone(id){const i=(ffx.milestones||[]).findIndex(x=>x.id===id);if(i<0)return;const m=ffx.milestones[i];ffx.milestones.splice(i,1);save();render();showUndoToast("Milestone removed",()=>{ffx.milestones.splice(i,0,m);save();});}
+function ffxProjectMilestonesHTML(p){
+  const list=ffxMilestonesFor(p.id).sort((a,b)=>(a.done-b.done)||(a.due||"9").localeCompare(b.due||"9")),done=list.filter(m=>m.done).length,today=ffxToday();
+  return`<div class="flex-b mb6 mt12"><span class="fz11 fw7">Milestones</span><span class="fz10 muted">${list.length?done+" of "+list.length+" done":"Track the steps"}</span></div>
+    ${list.length?`<div class="bar-track mb6"><div class="bar-fill" style="width:${done/list.length*100}%;background:var(--green)"></div></div>`:""}
+    ${list.map(m=>{const od=!m.done&&m.due&&m.due<today;return`<div class="ffx-ms ${m.done?"done":""}"><button class="ffx-ms-box" aria-label="${m.done?"Mark not done":"Mark done"}" onclick="toggleMilestone('${escJs(m.id)}')">${m.done?"✓":""}</button><div style="flex:1;min-width:0"><div class="fz12 fw6 ffx-ms-t ellip">${esc(m.title)}</div>${m.due?`<div class="fz9 ${od?"red fw7":"muted"}">${od?"Overdue · ":"Due "}${fmtD(m.due)}</div>`:""}</div><button class="btn btn-g btn-sm" style="padding:2px 8px" aria-label="Delete milestone" onclick="deleteMilestone('${escJs(m.id)}')">✕</button></div>`;}).join("")}
+    <div class="grid2 mt6" style="gap:6px;grid-template-columns:1fr 120px"><input class="inp" id="msTitle" placeholder="Add a milestone…" style="font-size:12px"><input class="inp" id="msDue" type="date" style="font-size:12px"></div><button class="btn btn-g btn-sm mt6" onclick="addMilestone('${escJs(p.id)}')">+ Add milestone</button>`;
+}
+function ffxScanProjects(){
+  const today=ffxToday(),soon=ffxAddDays(today,2);
+  (ffx.milestones||[]).forEach(m=>{
+    if(m.done||!m.due||m.due>soon)return;const p=projects.find(x=>x.id===m.projectId);if(!p||p.status!=="active")return;
+    pushNotif(`ms:${m.id}:${m.due<today?"od":m.due}`,"project",(m.due<today?"Overdue: ":"Due soon: ")+m.title,`${p.name} · ${m.due<today?"was due ":"due "}${fmtD(m.due)}`,"projects");
+  });
+}
+// receipts gallery
+const FFX_IMG_OK=/^data:image\/(png|jpe?g|webp);base64,[A-Za-z0-9+\/=]+$/;
+function ffxProjectReceiptsHTML(p){
+  const list=txns.filter(t=>t.projectId===p.id&&t.receipt&&FFX_IMG_OK.test(t.receipt)).sort((a,b)=>b.date.localeCompare(a.date));
+  if(!list.length)return"";
+  return`<div class="fz11 fw7 mb4 mt12">Receipts (${list.length})</div><div class="ffx-thumbs">${list.slice(0,20).map(t=>`<img alt="Receipt: ${esc(t.description||t.category)}" src="${t.receipt}" onclick="ffxShowReceipt('${escJs(t.id)}')">`).join("")}</div>`;
+}
+function ffxShowReceipt(id){
+  const t=txns.find(x=>x.id===id);if(!t||!FFX_IMG_OK.test(t.receipt||""))return;
+  $("modal-container").innerHTML=`<div class="modal-bg" onclick="showModal('close')" style="align-items:center"><div onclick="event.stopPropagation()" style="max-width:92%;max-height:88%;overflow:auto;background:var(--card);border-radius:16px;padding:10px"><img alt="Receipt" src="${t.receipt}" style="max-width:100%;border-radius:10px;display:block"><div class="flex-b mt8"><span class="fz11 muted">${fmtD(t.date)} · ${esc(t.description||t.category)} · ${fmtTxn(t)}</span><button class="btn btn-g btn-sm" onclick="showModal('close')">Close</button></div></div></div>`;
+}
+// report
+function ffxProjectNumbers(p){const s=ffxProjStats(p),funded=(Number(p.fundedAmount)||0)+ffxLinkedFunding(p.id);return{...s,funded,balance:funded-s.spent-s.committed,remaining:s.budget-s.spent-s.committed};}
+function ffxProjectReportText(p){
+  const n=ffxProjectNumbers(p),cats={};n.ex.forEach(t=>cats[t.category]=(cats[t.category]||0)+ffxPA(t));
+  const top=Object.entries(cats).sort((a,b)=>b[1]-a[1]).slice(0,5),ms=ffxMilestonesFor(p.id),done=ms.filter(m=>m.done).length;
+  return[`📋 ${p.name} — project report`,`${projectStatusLabel(p.status)} · started ${p.startDate}${p.expectedEndDate?" · due "+p.expectedEndDate:""}`,"",
+    `Budget: ${fmt(n.budget)}`,`Funding received: ${fmt(n.funded)}`,`Spent: ${fmt(n.spent)}`,`Committed: ${fmt(n.committed)}`,`Balance: ${fmt(n.balance)}`,`Budget remaining: ${fmt(n.remaining)}`,
+    ...(top.length?["","Where it went:",...top.map(([c,v])=>`• ${c}: ${fmt(v)}`)]:[]),
+    ...(ms.length?["",`Milestones: ${done}/${ms.length} done`,...ms.map(m=>`${m.done?"✅":"⬜"} ${m.title}${m.due?" (due "+m.due+")":""}`)]:[]),"","Made with FinanceFlow"].join("\n");
+}
+function ffxShareProjectReport(id){const p=projects.find(x=>x.id===id);if(p)ffxShareText(ffxProjectReportText(p));}
+function ffxExportProjectCsv(id){
+  const p=projects.find(x=>x.id===id);if(!p)return;
+  const q=v=>{let s=String(v??"");if(/^[=+\-@\t\r]/.test(s)&&isNaN(Number(s)))s="'"+s;return'"'+s.replace(/"/g,'""')+'"';};
+  const rows=[["Type","Date","Description","Category","Account","Amount","Status"]];
+  txns.filter(t=>t.projectId===id).sort((a,b)=>a.date.localeCompare(b.date)).forEach(t=>rows.push([t.type==="income"?"Funding":"Expense",t.date,t.description||"",t.category||"",accName(t.accountId),t.amount,""]));
+  commitments.filter(c=>c.projectId===id).forEach(c=>rows.push(["Commitment",c.dueDate||"",c.description,"","",c.amount,c.status]));
+  ffxMilestonesFor(id).forEach(m=>rows.push(["Milestone",m.due||"",m.title,"","","",m.done?"done":"open"]));
+  saveOrDownload("project-"+p.name.replace(/[^a-z0-9]+/gi,"-").toLowerCase()+".csv",rows.map(r=>r.map(q).join(",")).join("\n"),"text/csv");
+}
+function ffxProjectPeriodSelect(p){
+  const start=(FinanceCore.date(p.startDate)?p.startDate:ffxToday()).slice(0,7),now=ffxToday().slice(0,7),months=[];
+  let [y,m]=now.split("-").map(Number);for(let i=0;i<60;i++){const k=y+"-"+String(m).padStart(2,"0");months.push(k);if(k<=start)break;m--;if(m<1){m=12;y--;}}
+  if(projectPeriod!=="all"&&!months.includes(projectPeriod))months.unshift(projectPeriod);
+  return`<select class="inp" aria-label="Report period" onchange="projectPeriod=this.value;render()"><option value="all" ${projectPeriod==="all"?"selected":""}>All time</option>${months.map(k=>`<option value="${k}" ${projectPeriod===k?"selected":""}>${MO[Number(k.slice(5,7))-1]} ${k.slice(0,4)}</option>`).join("")}</select>`;
+}
+
+// ════════════════ Settings: formats, reminders, lock grace, backup reminders, import ════════════════
+const ffxPref=(k,d)=>{const v=ffx.prefs&&ffx.prefs[k];return v===undefined||v===null?d:v;};
+function ffxSetPref(k,v){ffx.prefs=ffx.prefs||{};ffx.prefs[k]=v;ffxSave();}
+const ffxWeekStart=()=>({mon:1,sun:0,sat:6}[ffxPref("weekStart","mon")]??1);
+function ffxCalHeader(){const n=["S","M","T","W","T","F","S"],w=ffxWeekStart();return Array.from({length:7},(_,i)=>`<div>${n[(w+i)%7]}</div>`).join("");}
+const ffxNumLocale=l=>({us:"en-US",eu:"de-DE",fr:"fr-FR"}[ffxPref("numFmt","")]||l);
+const ffxBillLead=()=>{const v=Number(ffxPref("billLead",3));return v>=1&&v<=14?v:3;};
+const ffxBackupDays=()=>{const v=Number(ffxPref("backupDays",30));return v>=0&&v<=365?v:30;};
+let ffxHiddenAt=0;
+function ffxLockGraceActive(){const g=Number(ffxPref("lockGrace",0));return g>0&&ffxHiddenAt>0&&Date.now()-ffxHiddenAt<g*60000;}
+function ffxPrefChanged(k,v){ffxSetPref(k,v);haptic("light");if(k==="weekStart"||k==="numFmt")render();if(settingsOpen)renderSettings();if(k==="billLead"&&remindersEnabled)syncUpcomingBills();}
+const ffxSel=(label,sub,key,opts,cur)=>`<div class="mb10"><div class="fz12 fw6">${label}</div>${sub?`<div class="fz10 muted mb6 mt4">${sub}</div>`:""}<select class="inp" aria-label="${esc(label)}" onchange="ffxPrefChanged('${key}',this.value)">${opts.map(([v,l])=>`<option value="${v}" ${String(cur)===String(v)?"selected":""}>${l}</option>`).join("")}</select></div>`;
+function ffxFormatsHTML(){
+  const defAcc=ffxPref("defaultAcc","");
+  return`<div class="card mb12"><div class="fz12 fw7 mb10">Formats & defaults</div>
+    ${ffxSel("First day of the week","Weeks, the History calendar and weekly budgets start on this day.","weekStart",[["mon","Monday"],["sun","Sunday"],["sat","Saturday"]],ffxPref("weekStart","mon"))}
+    ${ffxSel("Number format","How amounts are written.","numFmt",[["","Default for your currency"],["us","1,234.56"],["eu","1.234,56"],["fr","1 234,56"]],ffxPref("numFmt",""))}
+    ${ffxSel("Default account for new entries","Pre-selected in the Add sheet. Otherwise it uses the account you used last.","defaultAcc",[["","Last used"],...accounts.map(a=>[a.id,esc(a.name)])],defAcc)}</div>`;
+}
+function ffxBackupFreqHTML(){
+  return`<div class="card mb12"><div class="fz12 fw7 mb6">Backup reminders</div>${ffxSel("Remind me to back up","You'll get a notification and a banner in Settings when your last backup is older than this.","backupDays",[[7,"Every week"],[14,"Every 2 weeks"],[30,"Every month"],[60,"Every 2 months"],[0,"Never"]],ffxBackupDays())}</div>`;
+}
+function ffxHourLabel(h){const x=h%12||12;return x+":00 "+(h<12?"am":"pm");}
+function ffxSetReminderHours(){
+  const m=Number($("remM")?.value),e=Number($("remE")?.value);ffxSetPref("remMorning",m);ffxSetPref("remEvening",e);
+  try{window.Android.setReminderHours(m,e);}catch(x){}haptic("light");if(settingsOpen)renderSettings();showToast("Reminders set for "+ffxHourLabel(m)+" and "+ffxHourLabel(e),"green");
+}
+function ffxRemindersHTML(){
+  const nat=window.Android&&typeof window.Android.setReminderHours==="function";
+  if(!nat)return`<div class="card mb12"><div class="fz12 fw7 mb6">Reminders</div>${ffxSel("Remind me about bills","How many days before a bill is due.","billLead",[[1,"1 day before"],[2,"2 days before"],[3,"3 days before"],[5,"5 days before"],[7,"A week before"]],ffxBillLead())}</div>`;
+  const m=ffxPref("remMorning",6),e=ffxPref("remEvening",18);
+  return`<div class="card mb12"><div class="fz12 fw7 mb6">Reminders</div>
+    <div class="fz10 muted mb8">${remindersEnabled?"Daily nudges to log your transactions.":"Turn on daily reminders in Settings › Security to use these times."}</div>
+    <div class="grid2" style="gap:8px"><div><span class="edit-label">Morning</span><select class="inp" id="remM" onchange="ffxSetReminderHours()">${[5,6,7,8,9,10,11].map(h=>`<option value="${h}" ${Number(m)===h?"selected":""}>${ffxHourLabel(h)}</option>`).join("")}</select></div><div><span class="edit-label">Evening</span><select class="inp" id="remE" onchange="ffxSetReminderHours()">${[16,17,18,19,20,21,22].map(h=>`<option value="${h}" ${Number(e)===h?"selected":""}>${ffxHourLabel(h)}</option>`).join("")}</select></div></div>
+    <div class="mt10">${ffxSel("Remind me about bills","How many days before a bill is due.","billLead",[[1,"1 day before"],[2,"2 days before"],[3,"3 days before"],[5,"5 days before"],[7,"A week before"]],ffxBillLead())}</div></div>`;
+}
+function ffxLockGraceHTML(){
+  if(!(pinHash||biometricEnabled))return"";
+  return`<div class="card mb12"><div class="fz12 fw7 mb6">Lock timing</div>${ffxSel("Ask for PIN or fingerprint","Reopening the app within this time won't ask again. Starting the app fresh always asks.","lockGrace",[[0,"Every time I leave the app"],[1,"After 1 minute away"],[5,"After 5 minutes away"],[15,"After 15 minutes away"]],ffxPref("lockGrace",0))}</div>`;
+}
+// default account for new entries
+(function(){const orig=ffxEnhanceAddSheet;ffxEnhanceAddSheet=function(){orig();const d=ffxPref("defaultAcc","");if(d&&accounts.some(a=>a.id===d)&&!window._bankAlertId&&!window._ffxFund){window._txAcc=d;const l=$("txAccLabel");if(l)l.textContent=accName(d);}};})();
+
+// ── import from another app (Money Manager, Wallet, Monefy, generic CSV) ──
+let ffxImp=null;
+function ffxCsvParse(text){
+  text=String(text).replace(/^\uFEFF/,"");
+  const first=text.split(/\r?\n/,1)[0]||"",commas=first.split(",").length,semis=first.split(";").length,tabs=first.split("\t").length;
+  const delim=semis>commas&&semis>=tabs?";":tabs>commas?"\t":",";
+  const rows=[];let row=[],cur="",q=false;
+  for(let i=0;i<text.length;i++){const c=text[i];
+    if(q){if(c==='"'){if(text[i+1]==='"'){cur+='"';i++;}else q=false;}else cur+=c;}
+    else if(c==='"')q=true;else if(c===delim){row.push(cur);cur="";}else if(c==="\n"){row.push(cur);rows.push(row);row=[];cur="";}else if(c!=="\r")cur+=c;}
+  if(cur!==""||row.length){row.push(cur);rows.push(row);}
+  return rows.filter(r=>r.some(x=>String(x).trim()!==""));
+}
+function ffxParseNum(v){
+  let s=String(v??"").trim();if(!s)return NaN;let neg=false;
+  if(/^\(.*\)$/.test(s)){neg=true;s=s.slice(1,-1);}
+  s=s.replace(/[^0-9,.\-]/g,"");if(s.startsWith("-")){neg=!neg;s=s.slice(1);}s=s.replace(/-/g,"");
+  const lc=s.lastIndexOf(","),ld=s.lastIndexOf(".");
+  if(lc>=0&&ld>=0)s=lc>ld?s.replace(/\./g,"").replace(",","."):s.replace(/,/g,"");
+  else if(lc>=0)s=/^\d{1,3}(,\d{3})+$/.test(s)?s.replace(/,/g,""):s.replace(",",".");
+  const n=parseFloat(s);return Number.isFinite(n)?(neg?-n:n):NaN;
+}
+function ffxParseDate(str,order){
+  str=String(str||"").trim();let m;
+  if((m=str.match(/^(\d{4})[-\/.](\d{1,2})[-\/.](\d{1,2})/)))return ffxIsoOk(+m[1],+m[2],+m[3]);
+  if((m=str.match(/^(\d{1,2})[-\/.](\d{1,2})[-\/.](\d{2,4})/))){let y=+m[3];if(y<100)y+=2000;return order==="mdy"?ffxIsoOk(y,+m[1],+m[2]):ffxIsoOk(y,+m[2],+m[1]);}
+  return null;
+}
+function ffxIsoOk(y,mo,d){const iso=y+"-"+String(mo).padStart(2,"0")+"-"+String(d).padStart(2,"0");return FinanceCore.date(iso)?iso:null;}
+function ffxImportMap(header){
+  const h=header.map(x=>String(x).trim().toLowerCase().replace(/[^a-z0-9]+/g," ").trim());
+  const find=(...names)=>{for(const n of names){const i=h.findIndex(x=>x===n);if(i>=0)return i;}for(const n of names){const i=h.findIndex(x=>x.includes(n)&&!x.includes("converted")&&!x.includes("ref"));if(i>=0)return i;}return -1;};
+  const m={date:find("date","datetime","time"),amount:find("amount","value","sum"),type:find("income expense","transaction type","type"),category:find("category"),sub:find("subcategory","sub category"),account:find("account","wallet"),note:find("note"),desc:find("description","memo","payee","title","name")};
+  if(m.note===m.desc)m.desc=-1;
+  const hj=h.join("|");
+  m.format=/ref currency amount|payment type/.test(hj)?"Wallet":/converted amount/.test(hj)?"Monefy":/income expense/.test(hj)&&/sub ?category/.test(hj)?"Money Manager":"CSV";
+  return m;
+}
+function ffxImportPlan(rows,opts){
+  const map=ffxImportMap(rows[0]),body=rows.slice(1);
+  if(map.date<0||map.amount<0)return{error:"Couldn't find Date and Amount columns in that file."};
+  // date order
+  let order=opts.order;if(!order){let a12=false,b12=false;body.slice(0,2000).forEach(r=>{const m=String(r[map.date]||"").match(/^(\d{1,2})[-\/.](\d{1,2})[-\/.]\d{2,4}/);if(m){if(+m[1]>12)a12=true;if(+m[2]>12)b12=true;}});order=a12?"dmy":b12?"mdy":"dmy";opts.ambiguous=!a12&&!b12&&body.some(r=>/^\d{1,2}[-\/.]\d{1,2}[-\/.]\d{2,4}/.test(String(r[map.date]||"")));opts.order=order;}
+  const EC=getEC(),IC=getIC(),ci=(o,n)=>Object.keys(o).find(k=>k.toLowerCase()===String(n).toLowerCase());
+  const items=[],skip={transfer:0,invalid:0,dup:0},newAcc=new Set(),newCat=new Set(),accIdx=new Map(accounts.map(a=>[a.name.trim().toLowerCase(),a]));
+  const exist=new Set(txns.map(t=>[t.date,t.accountId,t.type,Number(t.amount).toFixed(2),(t.description||"").toLowerCase()].join("|")));
+  const seen=new Set();let min="9999",max="0000";
+  body.forEach(r=>{
+    const date=ffxParseDate(r[map.date],order),raw=ffxParseNum(r[map.amount]);
+    if(!date||!Number.isFinite(raw)||raw===0){skip.invalid++;return;}
+    const tcol=map.type>=0?String(r[map.type]||"").toLowerCase():"";
+    if(/transfer/.test(tcol)){skip.transfer++;return;}
+    let type=/income|credit|deposit|received|^in$/.test(tcol)?"income":/expense|debit|spend|^out$/.test(tcol)?"expense":(raw<0?"expense":"income");
+    if(!tcol&&raw>0&&map.format==="Monefy")type="income";
+    const amount=Math.abs(raw);
+    const accName0=map.account>=0?String(r[map.account]||"").trim():"";let acc=accName0?accIdx.get(accName0.toLowerCase()):accounts.find(a=>a.id===opts.dest);
+    if(accName0&&!acc){newAcc.add(accName0);}
+    const cats=type==="income"?IC:EC;let cat=map.category>=0?String(r[map.category]||"").trim():"",sub=map.sub>=0?String(r[map.sub]||"").trim():"";
+    let canon=cat?ci(cats,cat):null;if(cat&&!canon){newCat.add(type[0]+":"+cat);canon=cat;}
+    if(!canon)canon=ci(cats,"Other")||Object.keys(cats)[0];
+    const desc=[map.note>=0?String(r[map.note]||"").trim():"",map.desc>=0?String(r[map.desc]||"").trim():""].filter(Boolean).join(" — ").slice(0,120);
+    const key=[date,(acc?acc.id:"new:"+accName0.toLowerCase()),type,amount.toFixed(2),desc.toLowerCase()].join("|");
+    if(exist.has(key)||seen.has(key)){skip.dup++;return;}seen.add(key);
+    if(date<min)min=date;if(date>max)max=date;
+    items.push({date,amount,type,accName:accName0,accId:acc?acc.id:null,category:canon,sub,desc});
+  });
+  return{format:map.format,items,skip,newAcc:[...newAcc],newCat:[...newCat],range:[min,max],order,ambiguous:opts.ambiguous,total:body.length,hasAcc:map.account>=0};
+}
+function ffxImportStart(){
+  if(settingsOpen)closeSettings();
+  let inp=$("ffxImpInput");
+  if(!inp){inp=document.createElement("input");inp.type="file";inp.accept=".csv,.txt,text/csv";inp.id="ffxImpInput";inp.style.display="none";
+    inp.onchange=()=>{const f=inp.files[0];if(!f)return;if(f.size>8*1024*1024)return alert("That file is too large (8 MB maximum).");const r=new FileReader();r.onload=()=>ffxImportLoaded(String(r.result),f.name);r.readAsText(f);};document.body.appendChild(inp);}
+  inp.value="";inp.click();
+}
+function ffxImportLoaded(text,name){
+  const rows=ffxCsvParse(text);if(rows.length<2)return alert("That file looks empty.");if(rows.length>30001)return alert("That file has too many rows (30,000 maximum).");
+  ffxImp={rows,name,opts:{order:"",dest:accounts[0]?.id||"",ambiguous:false}};ffxImportPreview();
+}
+function ffxImportOpt(k,v){ffxImp.opts[k]=v;if(k==="order")ffxImp.opts.fixedOrder=true;ffxImportPreview();}
+function ffxImportPreview(){
+  const o=ffxImp.opts,keep=o.fixedOrder?o.order:"";if(!o.fixedOrder)o.order="";
+  const plan=ffxImp.plan=ffxImportPlan(ffxImp.rows,o);
+  const box=h=>{$("modal-container").innerHTML=`<div class="modal-bg" onclick="showModal('close')"><div class="modal modal-lg" onclick="event.stopPropagation()"><div class="modal-handle"></div><div class="flex-b mb12"><span class="fz16 fw7">Import from another app</span><button class="btn" style="padding:2px;color:var(--muted)" onclick="showModal('close')">&#10005;</button></div>${h}</div></div>`;};
+  if(plan.error)return box(`<div class="msg msg-err" style="display:block">${esc(plan.error)}</div><div class="fz11 muted mt8">Export your data as CSV from the other app (it needs at least a date and an amount for each row).</div>`);
+  const n=plan.items.length,sk=plan.skip;
+  box(`<div class="fz12 mb8">Found <b>${plan.total}</b> rows in “${esc(ffxImp.name)}” · looks like <b>${esc(plan.format)}</b></div>
+    <div class="ffx-ssum mb10"><div><span>To import</span><b>${n}</b></div><div><span>Dates</span><b style="font-size:11px">${n?esc(plan.range[0])+"<br>→ "+esc(plan.range[1]):"—"}</b></div><div><span>Skipped</span><b>${sk.dup+sk.transfer+sk.invalid}</b></div></div>
+    ${sk.dup||sk.transfer||sk.invalid?`<div class="fz10 muted mb8">Skipped: ${sk.dup} already in FinanceFlow, ${sk.transfer} transfers (add those by hand), ${sk.invalid} unreadable rows.</div>`:""}
+    ${plan.newAcc.length?`<div class="fz11 mb6">New accounts to create: <b>${plan.newAcc.map(esc).join(", ")}</b></div>`:""}
+    ${plan.newCat.length?`<div class="fz11 mb6">New categories to create: <b>${plan.newCat.slice(0,12).map(x=>esc(x.slice(2))).join(", ")}${plan.newCat.length>12?" …":""}</b></div>`:""}
+    ${plan.hasAcc?"":`<span class="edit-label">Put everything in account</span><select class="inp mb8" onchange="ffxImportOpt('dest',this.value)">${accounts.map(a=>`<option value="${esc(a.id)}" ${a.id===o.dest?"selected":""}>${esc(a.name)}</option>`).join("")}</select>`}
+    <span class="edit-label">Dates are written as</span><select class="inp mb4" onchange="ffxImportOpt('order',this.value)"><option value="dmy" ${plan.order==="dmy"?"selected":""}>Day / Month / Year</option><option value="mdy" ${plan.order==="mdy"?"selected":""}>Month / Day / Year</option></select>
+    ${plan.ambiguous?`<div class="fz10 warn mb8">⚠ These dates could be read either way. Check the range above looks right.</div>`:`<div style="height:8px"></div>`}
+    <div class="fz10 muted mb10">Amounts are read in ${esc(currency.code)}. You can undo right after importing.</div>
+    <button class="btn btn-p w100" style="justify-content:center;padding:13px" ${n?"":"disabled"} onclick="ffxImportCommit()">Import ${n} transaction${n===1?"":"s"}</button>`);
+}
+function ffxEnsureCategory(type,cat,sub){
+  const map=type==="income"?userIC:userEC,cur=type==="income"?getIC():getEC();
+  if(!Object.hasOwn(cur,cat))map[cat]=[];
+  if(sub){const list=type==="income"?getIC()[cat]:getEC()[cat];if(!(list||[]).includes(sub))map[cat]=[...(list||[]),sub];}
+}
+function ffxImportCommit(){
+  const plan=ffxImp&&ffxImp.plan;if(!plan||!plan.items.length)return;
+  const before={txns:JSON.parse(JSON.stringify(txns)),accounts:JSON.parse(JSON.stringify(accounts)),userEC:JSON.parse(JSON.stringify(userEC)),userIC:JSON.parse(JSON.stringify(userIC))};
+  const byName=new Map(accounts.map(a=>[a.name.trim().toLowerCase(),a.id]));
+  plan.newAcc.forEach((name,i)=>{if(byName.has(name.toLowerCase()))return;const a={id:uid(),name,type:"bank",color:ACC_COLORS[(accounts.length+i)%ACC_COLORS.length],currency:currency.code};accounts.push(a);byName.set(name.toLowerCase(),a.id);});
+  const tag="Import ("+plan.format+")";
+  plan.items.forEach(it=>{
+    const accId=it.accId||byName.get(it.accName.toLowerCase())||ffxImp.opts.dest;ffxEnsureCategory(it.type,it.category,it.sub);
+    txns.push({id:uid(),date:it.date,amount:FinanceCore.round(it.amount),type:it.type,category:it.category,subcategory:it.sub||"",accountId:accId,description:it.desc,tags:[],source:tag});
+  });
+  const n=plan.items.length;save();showModal("close");render();haptic("success");
+  showUndoToast("📥 Imported "+n+" transaction"+(n===1?"":"s"),()=>{txns=before.txns;accounts=before.accounts;userEC=before.userEC;userIC=before.userIC;save();});
 }

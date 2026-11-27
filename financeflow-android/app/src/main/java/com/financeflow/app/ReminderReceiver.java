@@ -38,6 +38,7 @@ public class ReminderReceiver extends BroadcastReceiver {
 
     @Override
     public void onReceive(Context context, Intent intent) {
+        loadHours(context);
         SharedPreferences prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
         if (!prefs.getBoolean(KEY_ENABLED, false)) return; // turned off since this alarm was set
 
@@ -118,7 +119,17 @@ public class ReminderReceiver extends BroadcastReceiver {
         }
     }
 
+    // User-chosen reminder hours (Settings > Preferences); defaults match the original 6am / 6pm.
+    private static volatile int morningHour = 6, eveningHour = 18;
+
+    static void loadHours(Context context) {
+        SharedPreferences p = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+        morningHour = Math.max(0, Math.min(23, p.getInt("morning_hour", 6)));
+        eveningHour = Math.max(0, Math.min(23, p.getInt("evening_hour", 18)));
+    }
+
     static void scheduleAll(Context context) {
+        loadHours(context);
         scheduleNext(context, false, true);
         scheduleNext(context, true, true);
     }
@@ -139,7 +150,7 @@ public class ReminderReceiver extends BroadcastReceiver {
 
     private static Calendar slotToday(boolean evening) {
         Calendar cal = Calendar.getInstance();
-        cal.set(Calendar.HOUR_OF_DAY, evening ? 18 : 6);
+        cal.set(Calendar.HOUR_OF_DAY, evening ? eveningHour : morningHour);
         cal.set(Calendar.MINUTE, 0);
         cal.set(Calendar.SECOND, 0);
         cal.set(Calendar.MILLISECOND, 0);
