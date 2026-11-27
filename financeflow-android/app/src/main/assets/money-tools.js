@@ -1246,7 +1246,6 @@ const FFX_I18N={
 function T(s){const l=uxPrefs.lang||"en";if(l==="en")return s;const e=FFX_I18N[s];return(e&&e[l])||s;}
 function setLang(l){uxPrefs.lang=FFX_LANGS[l]?l:"en";uxSavePrefs();document.documentElement.lang=uxPrefs.lang==="pcm"?"en-NG":uxPrefs.lang;render();if(settingsOpen)renderSettings();}
 function setLite(on){uxPrefs.lite=on;uxSavePrefs();document.body.classList.toggle("lite",on);txRenderLimit=on?80:150;render();}
-function ffxAppearanceExtras(){return`<div class="fz10 muted mt12">Language, tone, vibration and Lite mode are under <b>Settings › Preferences</b>.</div>`;}
 
 // ── family / household ledger via shared files ──
 function ffxDeviceId(){if(!ffx.deviceId){ffx.deviceId=uid();ffxSave();}return ffx.deviceId;}
@@ -1493,4 +1492,36 @@ function ffxPreferencesHTML(){
     <select class="inp mb6" onchange="setLang(this.value)">${Object.entries(FFX_LANGS).map(([k,v])=>`<option value="${k}" ${(uxPrefs.lang||"en")===k?"selected":""}>${v}</option>`).join("")}</select>
     <div class="fz10 muted mb16">Translates the main tabs, buttons and Home headings. These are first-draft translations.</div>
     <div class="toggle-wrap mb6"><div><div class="fz12 fw6">⚡ Lite mode</div><div class="fz10 muted mt4">For older or low-memory phones: no animations, blur or shadows, and fewer rows at once.</div></div><label class="toggle"><input type="checkbox" ${uxPrefs.lite?"checked":""} onchange="setLite(this.checked)"><span class="toggle-slider"></span></label></div></div>`;
+}
+
+// ════════════════ Header: greeting / page title + period selector ════════════════
+const FFX_PAGE_TITLES={stats:"Stats",transactions:"History",budgets:"Budgets",projects:"Projects"};
+function ffxPeriodLabel(mode,date){
+  const d=new Date(date);
+  if(mode==="week"){const r=getRangeFor("week",d),a=r.start,b=r.end;return a.getMonth()===b.getMonth()?`${a.getDate()}–${b.getDate()} ${MO[b.getMonth()]}`:`${a.getDate()} ${MO[a.getMonth()]}–${b.getDate()} ${MO[b.getMonth()]}`;}
+  if(mode==="month")return MO[d.getMonth()]+" "+d.getFullYear();
+  if(mode==="quarter")return"Q"+(Math.floor(d.getMonth()/3)+1)+" "+d.getFullYear();
+  return String(d.getFullYear());
+}
+function ffxHeaderUpdate(){
+  const t=$("hdrTitle"),sub=$("txCount"),per=$("hdrPeriod");if(!t||!sub||!per)return;
+  const first=(profile.name||"").trim().split(/\s+/)[0];
+  if(V==="dashboard"&&first){
+    t.textContent=T("Hi")+", "+first;
+    sub.textContent=new Date().toLocaleDateString("en-NG",{weekday:"long",day:"numeric",month:"short"});
+  }else{
+    t.textContent=FFX_PAGE_TITLES[V]?T(FFX_PAGE_TITLES[V]):"FinanceFlow";
+    sub.textContent="FinanceFlow";
+  }
+  const show=["dashboard","stats","transactions","budgets"].includes(V)&&!(cmpMode&&(V==="stats"||V==="budgets"))&&!needsOnboarding();
+  per.hidden=!show;if(!show)return;
+  const modes=[["week","Week"],["month","Month"],["quarter","Quarter"],["year","Year"]];
+  per.innerHTML=`<button class="hp-nav" aria-label="Previous period" onclick="navPeriod(-1,event)">&#9664;</button><button class="hp-label" aria-haspopup="true" aria-expanded="${ppOpen}" onclick="togglePP(event)">${esc(ffxPeriodLabel(pMode,pDate))} <span>${ppOpen?"&#9652;":"&#9662;"}</span></button><button class="hp-nav" aria-label="Next period" onclick="navPeriod(1,event)">&#9654;</button>${ppOpen?`<div class="pp-menu" onclick="event.stopPropagation()">${modes.map(([m,l])=>`<div class="pp-menu-item ${pMode===m?"active":""}" onclick="closePP();setPMode('${m}')"><span style="font-size:14px">${pMode===m?"&#9679;":"&#9675;"}</span>${l}</div>`).join("")}</div>`:""}`;
+}
+function ffxCustomizeHome(){closeSettings();goTo("dashboard");homeCustomize=true;render();}
+function ffxAppearanceExtras(){
+  return`<span class="st-label" style="margin-top:16px">Home screen</span>
+    <button class="btn btn-g w100 mb6" style="justify-content:center" onclick="ffxCustomizeHome()">&#9881; Rearrange or hide Home cards</button>
+    <div class="fz10 muted mb16">Reorder, hide or bring back the cards on Home. Tap Done at the top of Home when finished.</div>
+    <div class="fz10 muted">Language, tone, vibration and Lite mode are under <b>Settings › Preferences</b>.</div>`;
 }

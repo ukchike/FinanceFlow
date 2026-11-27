@@ -520,6 +520,23 @@ button.card{color:var(--text);font-family:inherit;font-size:inherit;display:bloc
 .ffx-ssearch{display:flex;align-items:center;gap:8px;background:var(--card);border:1px solid var(--border);border-radius:14px;padding:2px 12px}
 .ffx-ssearch input{flex:1;border:none;background:none;color:var(--text);font:inherit;font-size:14px;padding:10px 0;outline:none}
 .ffx-ssearch:focus-within{border-color:var(--accent);box-shadow:0 0 0 3px rgba(var(--accent-rgb),.15)}
+/* ── Header: greeting / page title + period selector ── */
+.hdr{gap:8px;padding:9px 12px}
+.hdr .bell-btn{width:32px;height:32px}
+.hp-nav{width:23px}
+.hp-label{padding:0 2px}
+@media(max-width:360px){#avatarBtn{display:none}.hp-label{font-size:11.5px}}
+.hdr{position:relative;z-index:60}
+.hdr-period{display:flex;align-items:center;gap:0;flex-shrink:0;background:var(--card);border:1px solid var(--border);border-radius:12px;padding:2px;position:relative}
+.hdr-period[hidden]{display:none}
+.hp-nav{width:26px;height:30px;border:none;background:none;color:var(--muted);font-size:11px;cursor:pointer;border-radius:9px;padding:0}
+.hp-nav:active{background:var(--active)}
+.hp-label{border:none;background:none;color:var(--text);font:inherit;font-size:12px;font-weight:700;padding:0 3px;cursor:pointer;white-space:nowrap;height:30px}
+.hp-label span{color:var(--muted);font-size:9px}
+.hdr-period .pp-menu{left:auto;right:0;min-width:132px;top:calc(100% + 8px)}
+.app-name{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tx-count{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ffx-custbar{background:rgba(var(--accent-rgb),.12);border:1px solid rgba(var(--accent-rgb),.35);border-radius:14px;padding:8px 8px 8px 14px}
 </style>
 </head>
 <body>
@@ -542,14 +559,14 @@ button.card{color:var(--text);font-family:inherit;font-size:inherit;display:bloc
 <header class="hdr">
   <button class="avatar-btn" id="avatarBtn" onclick="openSettings('home')" title="Settings" aria-label="Open settings">&#9881;</button>
   <div class="hdr-mid">
-    <div class="app-name">FinanceFlow</div>
-    <div class="tx-count" id="txCount">0 transactions</div>
+    <div class="app-name" id="hdrTitle">FinanceFlow</div>
+    <div class="tx-count" id="txCount"></div>
   </div>
   <div style="display:flex;gap:6px;align-items:center">
     <button class="bell-btn" id="privBtn" onclick="togglePrivacy()" aria-label="Hide amounts" aria-pressed="false">&#128065;</button>
     <button class="bell-btn" id="bellBtn" onclick="openNotifCenter()" aria-label="Notifications">&#128276;<span class="bell-badge" id="bellBadge" style="display:none"></span></button>
-    <button class="btn btn-g btn-sm" onclick="showModal('upload')">&#8679; Upload</button>
   </div>
+  <div class="hdr-period" id="hdrPeriod" hidden></div>
 </header>
 <main class="main-area" id="main"></main>
 <button class="fab" id="fabAdd" onclick="showModal('addtx')" title="Add Transaction" aria-label="Add transaction">+</button>
@@ -1142,7 +1159,7 @@ function financialNoticeHTML(){
   const foreign=accounts.filter(a=>(a.currency||currency.code)!==currency.code);
   const missing=foreign.filter(a=>FinanceCore.rate(a,currency.code)===null);
   const invalidTransfers=txns.filter(t=>t.type==="transfer"&&(!accounts.some(a=>a.id===t.fromAccountId)||!accounts.some(a=>a.id===t.toAccountId)||(!FinanceCore.sameCurrency(t.fromAccountId,t.toAccountId,accounts,currency.code)&&!(Number(t.receivedAmount)>0&&Number(t.exchangeRate)>0))));
-  return (missing.length?`<div class="msg msg-err fz11" style="display:block">Reports are in ${esc(currency.code)}. Excluded until a rate is set: ${missing.map(a=>esc(a.name)).join(', ')}. <button class="ffx-link" onclick="openSettings('accounts')">Set rate</button></div>`:foreign.length&&!window._ffxNoteGone?`<div class="ffx-note"><span>ⓘ Reports are in ${esc(currency.code)}. Foreign accounts use your manual rates.</span><button onclick="window._ffxNoteGone=true;render()" aria-label="Dismiss">✕</button></div>`:'')+
+  return (missing.length?`<div class="msg msg-err fz11" style="display:block">Reports are in ${esc(currency.code)}. Excluded until a rate is set: ${missing.map(a=>esc(a.name)).join(', ')}. <button class="ffx-link" onclick="openSettings('accounts')">Set rate</button></div>`:foreign.length&&V==="stats"&&!window._ffxNoteGone?`<div class="ffx-note"><span>ⓘ Reports are in ${esc(currency.code)}. Foreign accounts use your manual rates.</span><button onclick="window._ffxNoteGone=true;render()" aria-label="Dismiss">✕</button></div>`:'')+
     (invalidTransfers.length?`<div class="msg msg-err fz11">${invalidTransfers.length} existing transfer(s) involve different currencies or missing accounts. Review them: their original amounts are preserved.</div>`:'');
 }
 function validTransfer(from,to,rate){
@@ -1204,7 +1221,7 @@ function accName(id){const a=accounts.find(x=>x.id===id);return a?a.name:"";}
 
 // ── PERIOD PICKER ──
 function ppDropHTML(mode,label,open,toggleFn,setFn){const modes=[["week","Week"],["month","Month"],["quarter","Quarter"],["year","Year"]];return`<div class="pp-drop-wrap"><button class="pp-drop-btn" onclick="${toggleFn}(event)">${label} <span style="color:var(--muted);font-size:10px">${open?"&#9652;":"&#9662;"}</span></button>${open?`<div class="pp-menu" onclick="event.stopPropagation()">${modes.map(([m,l])=>`<div class="pp-menu-item ${mode===m?"active":""}" onclick="closePP();${setFn}('${m}')"><span style="font-size:14px">${mode===m?"&#9679;":"&#9675;"}</span>${l}</div>`).join("")}</div>`:""}</div>`;}
-function ppHTML(){return`<div class="pp-row"><button class="pp-nav" aria-label="Previous period" onclick="navPeriod(-1,event)">&#9664;</button>${ppDropHTML(pMode,getLabelFor(pMode,pDate),ppOpen,"togglePP","setPMode")}<button class="pp-nav" aria-label="Next period" onclick="navPeriod(1,event)">&#9654;</button></div>`;}
+function ppHTML(){return"";} // the period selector lives in the header (see ffxHeaderUpdate)
 function miniPickHTML(mode,date,open,toggleFn,navFn,setFn){return`<div class="mini-pick"><div class="pp-row" style="margin:0"><button class="pp-nav" style="width:24px;height:24px;font-size:11px" onclick="${navFn}(-1,event)">&#9664;</button>${ppDropHTML(mode,getLabelFor(mode,date),open,toggleFn,setFn)}<button class="pp-nav" style="width:24px;height:24px;font-size:11px" onclick="${navFn}(1,event)">&#9654;</button></div></div>`;}
 function cmpPickerHdr(){return`<div class="grid2 mb10" style="gap:10px;position:relative"><div>${miniPickHTML(pMode,pDate,ppOpen,"togglePP","navPeriod","setPMode")}</div><div>${miniPickHTML(pModeB,pDateB,ppBOpen,"togglePPB","navPeriodB","setPModeB")}</div><div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);background:var(--card);border:1px solid var(--border);border-radius:50%;width:20px;height:20px;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;color:var(--muted)">vs</div></div>`;}
 function chgBadge(a,b,isExp){if(a===0&&b===0)return`<span class="chg chg-nil">&mdash;</span>`;if(b===0)return`<span class="chg chg-nil">New</span>`;const p=Math.abs(((a-b)/b)*100).toFixed(0);if(a>b)return isExp?`<span class="chg chg-up">&#9650; ${p}%</span>`:`<span class="chg chg-dn">&#9650; ${p}%</span>`;if(a<b)return isExp?`<span class="chg chg-dn">&#9660; ${p}%</span>`:`<span class="chg chg-up">&#9660; ${p}%</span>`;return`<span class="chg chg-nil">=</span>`;}
@@ -1214,7 +1231,7 @@ function renderNav(){
   const items=[{id:"dashboard",icon:"&#128202;",l:"Home"},{id:"stats",icon:"&#128200;",l:"Stats"},{id:"transactions",icon:"&#128203;",l:"History"},{id:"budgets",icon:"&#127919;",l:"Budgets"},{id:"projects",icon:"&#128188;",l:"Projects"}];
   $("bnav").innerHTML=items.map(n=>`<button aria-label="${n.id==='transactions'?'Transactions':n.l}" ${!settingsOpen&&V===n.id?'aria-current="page"':''} class="bnav-btn ${!settingsOpen&&V===n.id?"active":""}" onclick="goTo('${n.id}')"><span class="ni" aria-hidden="true">${n.icon}</span>${T(n.l)}</button>`).join("")+`<button aria-label="Settings" ${settingsOpen?'aria-current="page"':''} class="bnav-btn ${settingsOpen?"active":""}" onclick="openSettings('home')"><span class="ni" aria-hidden="true">&#9881;</span>${T("Settings")}</button>`;
   const av=$("avatarBtn");if(av)av.innerHTML=profile.name?profile.name.charAt(0).toUpperCase():"&#9881;";
-  const tc=$("txCount");if(tc)tc.textContent=txns.length.toLocaleString()+" transactions";
+  ffxHeaderUpdate();
 }
 function goTo(v){
   closePP();txRenderLimit=150;
@@ -1561,7 +1578,7 @@ function rDash(f,inc,exp){
   const savColor=savRate<0?"var(--red)":savRate<20?"var(--warn)":"var(--green)";
 
   if(txns.length===0){
-    $("main").innerHTML=ppHTML()+`<div class="fz12 fw7 mb10">Hi, ${esc(profile.name.split(" ")[0])}! &#128075;</div><div class="card tac" style="padding:28px"><div style="font-size:32px;margin-bottom:8px">&#128179;</div><div class="fz13 fw6 mb4">No transactions yet</div><div class="fz11 muted mb12">Add your first transaction or upload a bank statement</div><div class="flex g8" style="justify-content:center"><button class="btn btn-p btn-sm" onclick="showModal('addtx')">+ Add</button><button class="btn btn-g btn-sm" onclick="showModal('upload')">&#8679; Upload CSV</button></div><button class="btn btn-g btn-sm mt10" onclick="loadDemoData()">&#128064; Explore with sample data</button></div>`;
+    $("main").innerHTML=ppHTML()+`<div class="card tac" style="padding:28px"><div style="font-size:32px;margin-bottom:8px">&#128179;</div><div class="fz13 fw6 mb4">No transactions yet</div><div class="fz11 muted mb12">Add your first transaction or upload a bank statement</div><div class="flex g8" style="justify-content:center"><button class="btn btn-p btn-sm" onclick="showModal('addtx')">+ Add</button><button class="btn btn-g btn-sm" onclick="showModal('upload')">&#8679; Upload CSV</button></div><button class="btn btn-g btn-sm mt10" onclick="loadDemoData()">&#128064; Explore with sample data</button></div>`;
     return;
   }
 
@@ -1595,7 +1612,7 @@ function rDash(f,inc,exp){
     recent:`<div class="card"><div class="flex-b mb8"><span class="fz12 fw7">Recent transactions</span><button class="btn btn-g btn-sm" onclick="goTo('transactions')">View all</button></div>${recent.map(txRow).join("")}</div>`,
   };
 
-  $("main").innerHTML=ppHTML()+ffxDemoBanner()+`<div class="flex-b mb10"><span class="fz12 fw7">${T("Hi")}, ${esc(profile.name.split(" ")[0])}! &#128075;</span><button class="btn btn-sm ${homeCustomize?"btn-p":"btn-g"}" onclick="toggleHomeCustomize()">${homeCustomize?"&#10003; Done":"&#9881; Rearrange"}</button></div>
+  $("main").innerHTML=ppHTML()+ffxDemoBanner()+`${homeCustomize?`<div class="flex-b mb10 ffx-custbar"><span class="fz12 fw7">&#9881; Rearranging Home</span><button class="btn btn-sm btn-p" onclick="toggleHomeCustomize()">&#10003; Done</button></div>`:""}
   ${homeCustomize?'<button class="btn btn-g w100 mb12" onclick="restoreDefaultHome()">Restore recommended Home layout</button>':''}
   <div class="home-actions"><button class="btn btn-p" onclick="showModal('addtx')">${T("+ Add transaction")}</button><button class="btn btn-g" onclick="showModal('upload')">${T("Import statement")}</button></div>
   ${homeLayout.map(key=>{
@@ -3318,7 +3335,7 @@ function rTx(f,inc,exp){
     return;
   }
   const flat=ffxHistFlat();const sorted=ffxHistSorted(f);const groups={};sorted.forEach(t=>{(groups[t.date]=groups[t.date]||[]).push(t);});const dates=Object.keys(groups).sort((a,b)=>ffxHist.sort==="old"?a.localeCompare(b):b.localeCompare(a));
-  $("main").innerHTML=ppHTML()+filterBarHTML+viewToggleHTML+`<div class="flex-b fz10 muted mb8 ffx-hsum"><span>${f.length} entries</span><div class="flex g6"><span>In: <span class="green">${fmtK(inc)}</span> &middot; Out: <span class="red">${fmtK(exp)}</span> &middot; Net: <span class="${inc-exp>=0?"green":"red"}">${inc-exp<0?"&minus;":""}${fmtK(Math.abs(inc-exp))}</span></span><button class="btn btn-g btn-sm" onclick="exportFilteredCSV()" title="Export what you see">&#10515; Export</button><button class="btn ${selectMode?"btn-p":"btn-g"} btn-sm" onclick="toggleSelectMode()">${selectMode?"Cancel":"Select"}</button></div></div>
+  $("main").innerHTML=ppHTML()+filterBarHTML+viewToggleHTML+`<div class="flex-b fz10 muted mb8 ffx-hsum"><span>${f.length} entries</span><div class="flex g6"><span>In: <span class="green">${fmtK(inc)}</span> &middot; Out: <span class="red">${fmtK(exp)}</span> &middot; Net: <span class="${inc-exp>=0?"green":"red"}">${inc-exp<0?"&minus;":""}${fmtK(Math.abs(inc-exp))}</span></span><button class="btn btn-g btn-sm" onclick="showModal('upload')" title="Import a bank statement">&#8679; Import</button><button class="btn btn-g btn-sm" onclick="exportFilteredCSV()" title="Export what you see">&#10515; Export</button><button class="btn ${selectMode?"btn-p":"btn-g"} btn-sm" onclick="toggleSelectMode()">${selectMode?"Cancel":"Select"}</button></div></div>
   ${flat?ffxFlatCardHTML(sorted):`<div class="card" style="padding:0;overflow:hidden">${dates.length?ffxLimitDates(dates,groups).map(d=>{const dayInc=groups[d].filter(t=>t.type==="income").reduce((s,t)=>FinanceCore.round(s+primaryAmount(t)),0);const dayExp=groups[d].filter(t=>t.type==="expense").reduce((s,t)=>FinanceCore.round(s+primaryAmount(t)),0);const dayItems=selectMode?groups[d]:groupSplits(groups[d]);return`<div class="date-hdr flex-b"><span>${fmtD(d)}</span><span class="date-hdr-tot"><span class="green">${fmtK(dayInc)}</span><span class="red">${fmtK(dayExp)}</span></span></div>${dayItems.map(t=>txListRow(t,selectMode)).join("")}`;}).join(""):'<div class="muted fz12 tac" style="padding:40px">No transactions found</div>'}${dates.length?ffxMoreBtn(dates,groups):""}</div>`}`;
   const si=$("si");if(si&&search){si.focus();si.setSelectionRange(search.length,search.length);}
   if(selectMode&&selectedTxIds.size){
