@@ -1,0 +1,10 @@
+name = "financeflow-sync"
+main = "src/index.js"
+compatibility_date = "2025-01-01"
+
+# CI replaces 00000000-0000-0000-0000-000000000000 after creating (or finding) the database.
+[[d1_databases]]
+binding = "DB"
+database_name = "financeflow-sync"
+database_id = "REPLACE_WITH_D1_ID"
+migrations_dir = "migrations"
