@@ -14,6 +14,7 @@ import android.os.PowerManager;
 import android.provider.Settings;
 import android.text.TextUtils;
 import android.util.Base64;
+import android.view.HapticFeedbackConstants;
 import android.view.Window;
 import android.view.WindowManager;
 import android.webkit.JavascriptInterface;
@@ -87,7 +88,7 @@ public class MainActivity extends AppCompatActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         requestWindowFeature(Window.FEATURE_NO_TITLE);
-        getWindow().addFlags(WindowManager.LayoutParams.FLAG_SECURE);
+        applySecureRecents(getSharedPreferences(UX_PREFS, MODE_PRIVATE).getBoolean(KEY_SECURE_RECENTS, true));
         setContentView(R.layout.activity_main);
 
         createNotificationChannel();
@@ -109,6 +110,9 @@ public class MainActivity extends AppCompatActivity {
         settings.setBuiltInZoomControls(true);
         settings.setDisplayZoomControls(false);
         settings.setCacheMode(WebSettings.LOAD_DEFAULT);
+        // Follow the phone's font-size setting (accessibility), capped so layouts don't break.
+        float fontScale = getResources().getConfiguration().fontScale;
+        settings.setTextZoom(Math.max(85, Math.min(130, Math.round(fontScale * 100))));
 
         webView.addJavascriptInterface(new AndroidBridge(), "Android");
         webView.setWebViewClient(new WebViewClient() {
@@ -474,6 +478,23 @@ public class MainActivity extends AppCompatActivity {
         }
 
         @JavascriptInterface
+        public void haptic(String kind) {
+            runOnUiThread(() -> {
+                if (webView == null) return;
+                int type = "heavy".equals(kind) ? HapticFeedbackConstants.LONG_PRESS
+                    : (Build.VERSION.SDK_INT >= 30 && "success".equals(kind)) ? HapticFeedbackConstants.CONFIRM
+                    : (Build.VERSION.SDK_INT >= 23 ? HapticFeedbackConstants.CONTEXT_CLICK : HapticFeedbackConstants.VIRTUAL_KEY);
+                webView.performHapticFeedback(type);
+            });
+        }
+
+        @JavascriptInterface
+        public void setSecureRecents(boolean secure) {
+            getSharedPreferences(UX_PREFS, MODE_PRIVATE).edit().putBoolean(KEY_SECURE_RECENTS, secure).apply();
+            runOnUiThread(() -> applySecureRecents(secure));
+        }
+
+        @JavascriptInterface
         public void shareText(String text) {
             if (TextUtils.isEmpty(text)) return;
             runOnUiThread(() -> {
@@ -697,6 +718,22 @@ public class MainActivity extends AppCompatActivity {
             value -> {
                 if (!"true".equals(value)) moveTaskToBack(true);
             });
+    }
+
+    private static final String UX_PREFS = "ux_prefs";
+    private static final String KEY_SECURE_RECENTS = "secure_recents";
+
+    // Android 13+: blank only the recent-apps preview, so the user can still take screenshots.
+    // Older versions have no such API, so FLAG_SECURE is the only way to hide the preview.
+    private void applySecureRecents(boolean secure) {
+        if (Build.VERSION.SDK_INT >= 33) {
+            getWindow().clearFlags(WindowManager.LayoutParams.FLAG_SECURE);
+            setRecentsScreenshotEnabled(!secure);
+        } else if (secure) {
+            getWindow().addFlags(WindowManager.LayoutParams.FLAG_SECURE);
+        } else {
+            getWindow().clearFlags(WindowManager.LayoutParams.FLAG_SECURE);
+        }
     }
 
     @Override

@@ -4,15 +4,15 @@
 // main script's globals (txns, accounts, save, render, ...) without load-order problems.
 'use strict';
 
-let ffx={debts:[],ajo:[],reversalLog:[],dismissedSubs:[],fx:{code:"USD",rates:[]}};
+let ffx={debts:[],ajo:[],reversalLog:[],dismissedSubs:[],templates:[],fx:{code:"USD",rates:[]}};
 let ffxView=null,ffxStack=[],ffxDetail=null,ffxState={};
 const FFX_DAY=864e5;
 
 // ── persistence ──
-function ffxFresh(){return{debts:[],ajo:[],reversalLog:[],dismissedSubs:[],fx:{code:"USD",rates:[]}};}
+function ffxFresh(){return{debts:[],ajo:[],reversalLog:[],dismissedSubs:[],templates:[],fx:{code:"USD",rates:[]}};}
 function ffxNormalize(d){
   const f=ffxFresh();if(!d||typeof d!=="object")return f;
-  for(const k of ["debts","ajo","reversalLog","dismissedSubs"])if(Array.isArray(d[k]))f[k]=d[k];
+  for(const k of ["debts","ajo","reversalLog","dismissedSubs","templates"])if(Array.isArray(d[k]))f[k]=d[k];
   if(d.fx&&typeof d.fx==="object"){f.fx.code=typeof d.fx.code==="string"?d.fx.code:"USD";f.fx.rates=Array.isArray(d.fx.rates)?d.fx.rates.filter(r=>r&&FinanceCore.date(r.date)&&Number(r.rate)>0):[];}
   return f;
 }
@@ -567,7 +567,7 @@ function saveQuickEntry(){
   const p=window._qe;if(!p)return;const date=$("qeDate").value;
   if(!validEntry(p.amount,date,window._qeAcc))return;
   const t={id:uid(),date,description:$("qeDesc").value.trim(),tags:[],amount:p.amount,type:window._qeT,category:window._qeCat,subcategory:window._qeSub||"",accountId:window._qeAcc,projectId:""};
-  txns.push(t);window._ffxLastAcc=t.accountId;save();checkBudgetAlerts(t);showModal("close");
+  if(p.reason===""||t.category==="Other")t.needsReview=true;txns.push(t);ffxRememberAccount(t.accountId);haptic("success");save();checkBudgetAlerts(t);showModal("close");
   const qi=$("ffxQuickInput");if(qi)qi.value="";
   render();showUndoToast((t.type==="income"?"Added +":"Added -")+fmt(t.amount)+" · "+(t.description||t.category),()=>{const i=txns.indexOf(t);if(i>=0)txns.splice(i,1);save();});
 }
@@ -615,6 +615,7 @@ function ffxChallengesHTML(){
 // ── tools hub, panel & navigation ──
 const FFX_TOOLS=[
   {id:"forecast",icon:"📈",label:"Forecast",sub:"Balance 30–90 days ahead"},
+  {id:"review",icon:"📥",label:"Review",sub:"Check new entries"},
   {id:"reversals",icon:"⏳",label:"Reversals",sub:"Failed debits"},
   {id:"ajo",icon:"🤝",label:"Ajo",sub:"Esusu circles"},
   {id:"debts",icon:"💸",label:"IOUs",sub:"Lent & borrowed"},
@@ -624,7 +625,7 @@ const FFX_TOOLS=[
   {id:"recap",icon:"🎉",label:"Recap",sub:"Month & year"},
   {id:"challenges",icon:"🔥",label:"Challenges",sub:"Save daily/weekly"},
   {id:"rules",icon:"✨",label:"Auto-rules",sub:"Categorize for me"}];
-const FFX_RENDER={forecast:ffxForecastHTML,reversals:ffxReversalsHTML,ajo:ffxAjoHTML,debts:ffxDebtsHTML,subs:ffxSubsHTML,fees:ffxFeesHTML,realvalue:ffxRealValueHTML,recap:ffxRecapHTML,challenges:ffxChallengesHTML,rules:ffxRulesHTML,hub:ffxHubHTML};
+const FFX_RENDER={review:()=>ffxReviewHTML(),forecast:ffxForecastHTML,reversals:ffxReversalsHTML,ajo:ffxAjoHTML,debts:ffxDebtsHTML,subs:ffxSubsHTML,fees:ffxFeesHTML,realvalue:ffxRealValueHTML,recap:ffxRecapHTML,challenges:ffxChallengesHTML,rules:ffxRulesHTML,hub:ffxHubHTML};
 function ffxHubHTML(){return`<div class="ffx-grid">${FFX_TOOLS.map(t=>`<button class="ffx-tile" onclick="openTool('${t.id}')"><span class="ffx-tile-ic">${t.icon}</span><span class="fz12 fw7">${t.label}</span><span class="fz10 muted">${t.sub}</span></button>`).join("")}</div>`;}
 function openTool(id){if(typeof notifOpen!=="undefined"&&notifOpen)closeNotifCenter();if(ffxView&&ffxView!==id)ffxStack.push(ffxView);ffxView=id;ffxDetail=null;ffxRender();const b=document.querySelector("#toolsPanel .settings-body");if(b)b.scrollTop=0;}
 function closeTools(){ffxView=null;ffxStack=[];ffxDetail=null;ffxState.ajoForm=ffxState.debtForm=ffxState.splitForm=false;const p=$("toolsPanel");if(p)p.innerHTML="";}
@@ -643,9 +644,11 @@ function ffxRender(){
 // ── Home "Money pulse" card ──
 function ffxPulseHTML(){
   const rw=ffxRunway(),pend=ffxPendingReversals(),fm=ffxMonthRange(0),fees=ffxFeesIn(fm.start,fm.end).reduce((s,t)=>s+ffxPA(t),0);
-  const subs=ffxDetectSubscriptions(false),spikes=ffxSpikes(),owed=ffx.debts.filter(d=>d.direction==="lent").reduce((s,d)=>s+ffxDebtLeft(d),0);
+  const subs=ffxDetectSubscriptions(false),spikes=ffxSpikes(),owed=ffx.debts.filter(d=>d.direction==="lent").reduce((s,d)=>s+ffxDebtLeft(d),0),rev=ffxReviewList().length;
   let fc=null;try{fc=ffxForecast(30);}catch(e){}
+  const pace=ffxPacing();
   const chips=[];
+  if(rev)chips.push(`<button class="ffx-pchip accent" onclick="openTool('review')">📥 ${rev} to review</button>`);
   if(pend.length)chips.push(`<button class="ffx-pchip warn" onclick="openTool('reversals')">⏳ ${pend.length} awaiting reversal · ${fmtK(pend.reduce((s,t)=>s+ffxPA(t),0))}</button>`);
   if(fc&&fc.low.v<0)chips.push(`<button class="ffx-pchip bad" onclick="openTool('forecast')">⚠️ Balance may dip below zero ${fmtD(fc.low.date)}</button>`);
   if(spikes[0])chips.push(`<button class="ffx-pchip warn" onclick="goTo('stats')">📊 ${esc(spikes[0].cat)} is ${spikes[0].ratio.toFixed(1)}× your usual week</button>`);
@@ -653,12 +656,20 @@ function ffxPulseHTML(){
   if(fees>0)chips.push(`<button class="ffx-pchip" onclick="openTool('fees')">🏦 Fees this month ${fmtK(fees)}</button>`);
   if(owed>0)chips.push(`<button class="ffx-pchip good" onclick="openTool('debts')">🤝 Owed to you ${fmtK(owed)}</button>`);
   const days=rw.days,tone=days===null?"":days<14?"bad":days<45?"warn":"good";
-  return`<div class="card ffx-pulse">
-    <div class="flex-b"><div><div class="fz10 muted fw6" style="text-transform:uppercase;letter-spacing:.5px">Money runway</div><div class="ffx-runway ${tone}">${days===null?"—":days>999?"999+":days}<span> day${days===1?"":"s"}</span></div><div class="fz10 muted">${days===null?"Record some spending to see how long your money lasts":"Your balance at your usual "+fmtK(rw.avg)+"/day spending"}</div></div>
-    <button class="ffx-pulse-btn" onclick="openTool('forecast')" aria-label="Open forecast">📈</button></div>
-    <div class="ffx-qe"><span>⚡</span><input id="ffxQuickInput" placeholder="Quick add: “5k fuel cash”, “+250k salary gtbank”" enterkeyhint="done" onkeydown="ffxQuickKey(event)"><button onclick="openQuickEntry($('ffxQuickInput').value)" aria-label="Quick add">Add</button></div>
+  const head=pace?`<div class="flex-b" style="align-items:flex-start"><div style="min-width:0"><div class="ffx-eyebrow">${pace.left>=0?"Left to spend this month":"Over this month's plan"}</div>
+      <div class="ffx-left ${pace.left<0?"bad":pace.ahead?"warn":"good"}">${fmt(Math.abs(pace.left))}</div>
+      <div class="fz11 muted">${pace.left>0?`<b class="${pace.ahead?"warn":"green"}">${fmtK(pace.perDay)}/day</b> for ${pace.daysLeft} day${pace.daysLeft===1?"":"s"} · `:""}${pace.ahead?"▲ spending faster than planned":"✓ on pace"}</div></div>
+      <button class="ffx-pulse-btn" onclick="openTool('forecast')" aria-label="Open forecast">📈</button></div>
+    ${ffxPacingSVG(pace)}<div class="flex-b fz9 muted"><span>${fmtK(pace.spent)} spent of ${fmtK(pace.limit)} ${pace.src==="budget"?"monthly budgets":"(last month's spending)"}</span><span>Runway <b class="${tone==="bad"?"red":tone==="warn"?"warn":""}">${days===null?"—":days>999?"999+":days} days</b></span></div>`
+    :`<div class="flex-b"><div><div class="ffx-eyebrow">Money runway</div><div class="ffx-runway ${tone}">${days===null?"—":days>999?"999+":days}<span> day${days===1?"":"s"}</span></div><div class="fz10 muted">${days===null?"Record some spending to see how long your money lasts":"Your balance at your usual "+fmtK(rw.avg)+"/day spending"}</div></div>
+    <button class="ffx-pulse-btn" onclick="openTool('forecast')" aria-label="Open forecast">📈</button></div>`;
+  const ring=ffxTopCategories(8);
+  return`<div class="card ffx-pulse">${head}
+    <div class="ffx-eyebrow mt12">Log in one tap</div>
+    <div class="ffx-ring">${ring.map(([c,s])=>`<button onclick="ffxQuickCat('${escJs(c)}','${escJs(s)}')" aria-label="Add ${esc(s||c)} expense"><span style="background:${clr(c)}22;color:${clr(c)};border-color:${clr(c)}55">${catIcon(c)}</span><em>${esc(s||c)}</em></button>`).join("")}</div>
+    <div class="ffx-qe"><span>⚡</span><input id="ffxQuickInput" placeholder="Or type: “5k fuel cash”, “+250k salary gtbank”" enterkeyhint="done" onkeydown="ffxQuickKey(event)"><button onclick="openQuickEntry($('ffxQuickInput').value)" aria-label="Quick add">Add</button></div>
     ${chips.length?`<div class="ffx-pchips">${chips.join("")}</div>`:""}
-    <div class="ffx-mini-grid">${FFX_TOOLS.slice(0,8).map(t=>`<button onclick="openTool('${t.id}')"><span>${t.icon}</span>${t.label}</button>`).join("")}</div>
+    <div class="ffx-mini-grid">${FFX_TOOLS.slice(0,8).map(t=>`<button onclick="openTool('${t.id}')"><span>${t.icon}</span>${t.label}${t.id==="review"&&rev?`<i class="ffx-dot">${rev}</i>`:""}</button>`).join("")}</div>
     <button class="btn btn-g btn-sm w100 mt8" style="justify-content:center" onclick="openTool('hub')">All money tools ›</button>
   </div>`;
 }
@@ -691,3 +702,195 @@ function ffxScanNotifications(){
   try{const f=ffxForecast(30);if(f.low.v<0)pushNotif("fc:"+today.slice(0,7)+":"+f.low.date.slice(0,7),"forecast","Your balance may run low",`At your usual spending it could dip to ${fmt(f.low.v)} around ${fmtD(f.low.date)}`,"tool:forecast");}catch(e){}
   goals.forEach(g=>{if(!g.challenge||g.saved>=g.target)return;const st=ffxChallengeStep(g);if(!(g.challenge.checkins||[]).includes(st.key)&&(g.challenge.type==="daily"?new Date().getHours()>=18:new Date().getDay()>=5||new Date().getDay()===0))pushNotif(`chal:${g.id}:${st.key}`,"challenge",`Keep your ${FFX_CHALLENGES[g.challenge.type].label} going`,`Save ${fmt(st.amount)} to ${g.name} for ${st.label}`,"tool:challenges");});
 }
+
+// ════════════════ UX layer: privacy, haptics, pacing, one-tap entry, favourites,
+// swipe gestures, review inbox, demo data ════════════════
+let privacyMode=false,uxPrefs={haptics:true,secureRecents:true};
+function uxLoad(){
+  try{privacyMode=appStorage.getItem("ffd_privacy")==="1";}catch(e){}
+  try{uxPrefs=Object.assign({haptics:true,secureRecents:true},JSON.parse(appStorage.getItem("ffd_uxprefs")||"{}"));}catch(e){}
+  try{const la=appStorage.getItem("ffd_lastacc");if(la)window._ffxLastAcc=la;}catch(e){}
+  try{if(window.Android&&window.Android.setSecureRecents)window.Android.setSecureRecents(!!uxPrefs.secureRecents);}catch(e){}
+}
+function uxSavePrefs(){appStorage.setItem("ffd_uxprefs",JSON.stringify(uxPrefs));}
+const privOn=()=>privacyMode&&!window._privBypass;
+function togglePrivacy(){privacyMode=!privacyMode;appStorage.setItem("ffd_privacy",privacyMode?"1":"0");haptic("light");updatePrivacyBtn();render();if(ffxView)ffxRender();if(typeof notifOpen!=="undefined"&&notifOpen)renderNotifCenter();showToast(privacyMode?"🙈 Amounts hidden":"👁 Amounts visible","green");}
+function updatePrivacyBtn(){const b=$("privBtn");if(b){b.innerHTML=privacyMode?"&#128584;":"&#128065;";b.setAttribute("aria-pressed",String(privacyMode));b.setAttribute("aria-label",privacyMode?"Show amounts":"Hide amounts");}document.body.classList.toggle("privacy",privacyMode);}
+function setUxPref(k,v){uxPrefs[k]=v;uxSavePrefs();if(k==="secureRecents"&&window.Android&&window.Android.setSecureRecents)window.Android.setSecureRecents(!!v);if(v)haptic("light");render();}
+function uxPrivacyHTML(){
+  const row=(label,sub,checked,on)=>`<div class="toggle-wrap mb8"><div><div class="fz12 fw6">${label}</div><div class="fz10 muted mt4">${sub}</div></div><label class="toggle"><input type="checkbox" ${checked?"checked":""} onchange="${on}"><span class="toggle-slider"></span></label></div>`;
+  return`<div class="card mb12"><div class="fz12 fw7 mb10">Privacy & feel</div>
+    ${row("&#128584; Hide amounts","Masks balances and amounts everywhere. Also toggled with the eye button at the top.",privacyMode,"togglePrivacy()")}
+    ${row("&#128737; Hide in recent apps","The app preview in the recent-apps screen is blanked so balances aren't visible.",uxPrefs.secureRecents,"setUxPref('secureRecents',this.checked)")}
+    ${row("&#128243; Vibration feedback","A light tap when you save, delete or swipe.",uxPrefs.haptics,"setUxPref('haptics',this.checked)")}</div>`;
+}
+function haptic(kind){
+  if(!uxPrefs.haptics)return;
+  try{if(window.Android&&window.Android.haptic)window.Android.haptic(kind||"light");else if(navigator.vibrate)navigator.vibrate(kind==="heavy"?18:kind==="success"?[8,40,12]:8);}catch(e){}
+}
+function syncWidgetDataUnmasked(fn){window._privBypass=true;try{fn();}finally{window._privBypass=false;}}
+
+// ── left to spend + pacing (Copilot "Free to spend", Rocket Money "Left for spending") ──
+function ffxBudgetMatch(b,t){return t.category===b.cat&&(b.limit>0||(b.subs||[]).some(s=>s.name===t.subcategory&&s.limit>0));}
+function ffxPacing(){
+  const now=new Date(),r=getRangeFor("month",now),dim=new Date(now.getFullYear(),now.getMonth()+1,0).getDate(),day=now.getDate(),today=ffxToday();
+  const monthBudgets=budgets.filter(b=>(b.period||"month")==="month"&&budgetBaseLimit(b)>0);
+  let limit=0,src="",match=()=>true;
+  if(monthBudgets.length){limit=monthBudgets.reduce((s,b)=>s+budgetEffLimit(b,"month",now),0);src="budget";match=t=>monthBudgets.some(b=>ffxBudgetMatch(b,t));}
+  else{const p=ffxMonthRange(-1);limit=txns.filter(t=>t.type==="expense"&&t.date>=p.start&&t.date<=p.end).reduce((s,t)=>s+ffxPA(t),0);src="lastmonth";}
+  if(!(limit>0))return null;
+  const exp=txns.filter(t=>t.type==="expense"&&t.date>=r.startStr&&t.date<=today&&match(t));
+  const perDaySpent=new Array(dim+1).fill(0);exp.forEach(t=>{const d=Number(t.date.slice(8,10));perDaySpent[d]+=ffxPA(t);});
+  const series=[];let cum=0;for(let d=1;d<=day;d++){cum+=perDaySpent[d];series.push(cum);}
+  const spent=cum,left=limit-spent,daysLeft=dim-day+1,perDay=left>0?left/daysLeft:0,expected=limit*day/dim;
+  return{limit,spent,left,perDay,daysLeft,src,series,dim,day,ahead:spent>expected,overBy:spent-expected};
+}
+function ffxPacingSVG(p){
+  const W=300,H=64,X=d=>(d/p.dim)*W,max=Math.max(p.limit,p.spent)*1.05,Y=v=>H-(v/max)*(H-4)-2;
+  const pts=p.series.map((v,i)=>X(i+1).toFixed(1)+","+Y(v).toFixed(1)).join(" ");
+  const col=p.ahead?"var(--warn)":"var(--green)";
+  return`<svg viewBox="0 0 ${W} ${H}" class="ffx-pace" preserveAspectRatio="none" aria-hidden="true">
+    <line x1="0" y1="${Y(0)}" x2="${W}" y2="${Y(p.limit)}" stroke="var(--muted)" stroke-width="1.5" stroke-dasharray="4 4" opacity=".7"/>
+    <line x1="0" y1="${Y(p.limit)}" x2="${W}" y2="${Y(p.limit)}" stroke="var(--border)" stroke-width="1"/>
+    <polyline points="0,${Y(0)} ${pts}" fill="none" stroke="${col}" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>
+    <circle cx="${X(p.day)}" cy="${Y(p.spent)}" r="4" fill="${col}"/></svg>`;
+}
+
+// ── one-tap category ring (Monefy) ──
+function ffxTopCategories(n){
+  const from=ffxAddDays(ffxToday(),-120),count={};
+  txns.forEach(t=>{if(t.type==="expense"&&t.date>=from){const k=t.category+"|"+(t.subcategory||"");count[k]=(count[k]||0)+1;}});
+  const EC=getEC();
+  let list=Object.entries(count).sort((a,b)=>b[1]-a[1]).map(([k])=>k.split("|")).filter(([c,s])=>Object.hasOwn(EC,c)&&(!s||(EC[c]||[]).includes(s)));
+  const seen=new Set(list.map(x=>x[0]+"|"+x[1]));
+  for(const c of Object.keys(EC)){if(list.length>=n)break;const s=(EC[c]||[])[0]||"";if(!seen.has(c+"|"+s)){list.push([c,s]);seen.add(c+"|"+s);}}
+  return list.slice(0,n);
+}
+function ffxQuickCat(cat,sub){
+  haptic("light");showModal("addtx");
+  window._txCat=cat;window._txSub=sub||"";window._txCatManual=true;
+  const lbl=$("txCatLabel");if(lbl)lbl.textContent=sub?cat+" / "+sub:cat;
+  setTimeout(()=>{const a=$("txAmt");if(a)a.focus();},250);
+}
+
+// ── favourites / templates + remembered account ──
+function ffxRememberAccount(id){if(!id)return;window._ffxLastAcc=id;try{appStorage.setItem("ffd_lastacc",id);}catch(e){}}
+function ffxEnhanceAddSheet(){
+  if(!window._bankAlertId&&window._ffxLastAcc&&accounts.some(a=>a.id===window._ffxLastAcc)){window._txAcc=window._ffxLastAcc;const l=$("txAccLabel");if(l)l.textContent=accName(window._txAcc);}
+  const body=document.querySelector(".entry-modal .entry-body");if(!body||$("tplRow"))return;
+  const row=document.createElement("div");row.id="tplRow";row.className="ffx-tpl-row";
+  row.innerHTML=(ffx.templates||[]).map(t=>`<button type="button" class="ffx-tpl" onclick="applyTemplate('${escJs(t.id)}')" oncontextmenu="event.preventDefault();deleteTemplate('${escJs(t.id)}')">${catIcon(t.category)} ${esc(t.name)}${t.amount?` <b>${fmtK(t.amount)}</b>`:""}</button>`).join("")+`<button type="button" class="ffx-tpl add" onclick="saveTemplateFromForm()">☆ Save as favourite</button>`;
+  body.parentElement.insertBefore(row,body);
+}
+function applyTemplate(id){
+  const t=(ffx.templates||[]).find(x=>x.id===id);if(!t)return;haptic("light");
+  if(t.type&&t.type!==window._txT&&typeof setTT==="function")setTT(t.type);
+  if(t.amount)setAmountValue("txAmt",t.amount);
+  const d=$("txDesc");if(d)d.value=t.description||"";
+  const cats=t.type==="income"?getIC():getEC();
+  if(Object.hasOwn(cats,t.category)){window._txCat=t.category;window._txSub=t.subcategory||"";window._txCatManual=true;const l=$("txCatLabel");if(l)l.textContent=t.subcategory?t.category+" / "+t.subcategory:t.category;}
+  if(accounts.some(a=>a.id===t.accountId)){window._txAcc=t.accountId;const l=$("txAccLabel");if(l)l.textContent=accName(t.accountId);}
+  showToast("★ "+t.name+" filled in — check and save","green");
+}
+function saveTemplateFromForm(){
+  const desc=($("txDesc")?.value||"").trim(),amount=parseAmount($("txAmt")?.value);
+  const name=prompt("Name this favourite",desc||window._txSub||window._txCat||"Favourite");if(!name||!name.trim())return;
+  ffx.templates=ffx.templates||[];
+  ffx.templates.push({id:uid(),name:name.trim().slice(0,24),type:window._txT||"expense",amount:amount>0?amount:0,description:desc,category:window._txCat,subcategory:window._txSub||"",accountId:window._txAcc});
+  if(ffx.templates.length>12)ffx.templates.shift();
+  save();const r=$("tplRow");if(r)r.remove();ffxEnhanceAddSheet();showToast("★ Saved — long-press a favourite to remove it","green");
+}
+function deleteTemplate(id){const t=(ffx.templates||[]).find(x=>x.id===id);if(!t||!confirm("Remove the favourite “"+t.name+"”?"))return;ffx.templates=ffx.templates.filter(x=>x.id!==id);save();const r=$("tplRow");if(r)r.remove();ffxEnhanceAddSheet();}
+
+// ── review inbox (Copilot "To review") ──
+function ffxReviewList(){return txns.filter(t=>t.needsReview&&t.type!=="transfer").sort((a,b)=>b.date.localeCompare(a.date));}
+function ffxCatSuggestions(t){
+  const cats=t.type==="income"?getIC():getEC(),key=ffxNormDesc(t.description),count={};
+  txns.forEach(x=>{if(x===t||x.type!==t.type||!Object.hasOwn(cats,x.category))return;const w=key&&ffxNormDesc(x.description)===key?10:1;const k=x.category+"|"+(x.subcategory||"");count[k]=(count[k]||0)+w;});
+  const s=ffxSuggestCat(t.type,t.description);if(s&&Object.hasOwn(cats,s.category)){const k=s.category+"|"+(s.subcategory||"");count[k]=(count[k]||0)+100;}
+  const out=Object.entries(count).sort((a,b)=>b[1]-a[1]).map(([k])=>k.split("|")).filter(([c,sub])=>!(c===t.category&&sub===(t.subcategory||"")));
+  for(const c of Object.keys(cats)){if(out.length>=2)break;const sub=(cats[c]||[])[0]||"";if(c!==t.category&&!out.some(([x])=>x===c))out.push([c,sub]);}
+  return out.slice(0,2);
+}
+function reviewConfirm(id){const t=txns.find(x=>x.id===id);if(!t)return;delete t.needsReview;haptic("success");save();ffxRender();render();}
+function reviewSetCat(id,cat,sub){const t=txns.find(x=>x.id===id);if(!t)return;t.category=cat;t.subcategory=sub||"";delete t.needsReview;haptic("success");save();ffxRender();render();showToast("🏷 "+(sub?cat+" / "+sub:cat),"green");}
+function reviewConfirmAll(){const l=ffxReviewList();if(!l.length||!confirm("Mark all "+l.length+" as reviewed?"))return;l.forEach(t=>delete t.needsReview);haptic("success");save();ffxRender();render();}
+function ffxReviewHTML(){
+  const l=ffxReviewList();
+  if(!l.length)return`<div class="empty-state"><div class="empty-ic">✅</div><div class="fz13 fw7">All caught up</div><div class="fz11 muted mt4">Imported statements and quick-adds land here so you can check their categories in one go.</div></div>`;
+  return`<div class="flex-b mb12"><div class="fz11 muted">${l.length} to check · tap a suggestion to fix the category, or confirm</div><button class="btn btn-g btn-sm" onclick="reviewConfirmAll()">Confirm all</button></div>`+
+  l.slice(0,60).map(t=>{const sug=ffxCatSuggestions(t);return`<div class="card ffx-review"><div class="flex-b"><div class="flex g8" style="min-width:0"><div class="tx-icon" style="background:${clr(t.category)}22;color:${clr(t.category)}">${catIcon(t.category)}</div><div style="min-width:0"><div class="fz13 fw7 ellip">${esc(t.description||t.category)}</div><div class="fz10 muted">${fmtD(t.date)} · ${esc(accName(t.accountId))}${t.source?" · "+esc(t.source):""}</div></div></div><div class="fz13 fw8 ${t.type==="income"?"green":"red"}">${t.type==="income"?"+":"-"}${fmtTxn(t)}</div></div>
+    <div class="ffx-sugs"><span class="ffx-sug cur">${catIcon(t.category)} ${esc(t.subcategory?t.category+" / "+t.subcategory:t.category)}</span>${sug.map(([c,s])=>`<button class="ffx-sug" onclick="reviewSetCat('${escJs(t.id)}','${escJs(c)}','${escJs(s)}')">${catIcon(c)} ${esc(s||c)}</button>`).join("")}</div>
+    <div class="flex g6 mt10"><button class="btn btn-p btn-sm" onclick="reviewConfirm('${escJs(t.id)}')">✓ Looks right</button><button class="btn btn-g btn-sm" onclick="showModal('edit','${escJs(t.id)}')">Edit</button></div></div>`;}).join("");
+}
+
+// ── swipe gestures: rows (delete / recategorize) and periods (prev / next month) ──
+let _sw=null;
+function ffxInitGestures(){
+  const main=$("main");if(!main||main._ffxGest)return;main._ffxGest=true;
+  main.addEventListener("touchstart",e=>{
+    if(e.touches.length!==1){_sw=null;return;}const p=e.touches[0];
+    const row=e.target.closest('.tx-row[data-id]');const block=e.target.closest(".acc-deck,.ffx-pchips,.ffx-tpl-row,.tab-row,input,select,textarea,.cal-grid,[data-noswipe]");
+    _sw={x:p.clientX,y:p.clientY,row:row&&!selectMode?row:null,month:!row&&!block,dir:null,dx:0};
+  },{passive:true});
+  main.addEventListener("touchmove",e=>{
+    if(!_sw)return;const p=e.touches[0],dx=p.clientX-_sw.x,dy=p.clientY-_sw.y;
+    if(!_sw.dir&&(Math.abs(dx)>12||Math.abs(dy)>12))_sw.dir=Math.abs(dx)>Math.abs(dy)*1.3?"h":"v";
+    if(_sw.dir!=="h")return;_sw.dx=dx;
+    if(_sw.row){_sw.row.classList.add("swiping");_sw.row.classList.toggle("sw-left",dx<0);_sw.row.classList.toggle("sw-right",dx>0);_sw.row.classList.toggle("sw-armed",Math.abs(dx)>90);_sw.row.style.setProperty("--sx",Math.max(-140,Math.min(140,dx))+"px");}
+  },{passive:true});
+  main.addEventListener("touchend",()=>{
+    const s=_sw;_sw=null;if(!s||s.dir!=="h")return;
+    if(s.row){const id=s.row.dataset.id;s.row.classList.remove("swiping","sw-left","sw-right","sw-armed");s.row.style.removeProperty("--sx");
+      if(s.dx<-90){haptic("heavy");deleteTx(id);}else if(s.dx>90){haptic("light");ffxSwipeCat(id);}return;}
+    if(s.month&&Math.abs(s.dx)>80&&["dashboard","stats","transactions","budgets"].includes(V)&&!settingsOpen&&typeof navPeriod==="function"){
+      if(V==="transactions"&&txViewMode==="calendar")return;
+      haptic("light");navPeriod(s.dx<0?1:-1);const m=$("main");m.classList.remove("slide-l","slide-r");void m.offsetWidth;m.classList.add(s.dx<0?"slide-l":"slide-r");
+    }
+  });
+  main.addEventListener("touchcancel",()=>{if(_sw&&_sw.row){_sw.row.classList.remove("swiping","sw-left","sw-right","sw-armed");_sw.row.style.removeProperty("--sx");}_sw=null;});
+}
+function ffxSwipeCat(id){
+  const t=txns.find(x=>x.id===id);if(!t||t.type==="transfer")return;
+  window._swipeId=id;window._swipeT=t.type;window._swipeCat=t.category;window._swipeSub=t.subcategory||"";
+  openCatPicker("_swipeT","_swipeCat","_swipeSub","_swipeLbl");
+}
+function ffxApplySwipeCat(){
+  const t=txns.find(x=>x.id===window._swipeId);if(!t)return;const before={c:t.category,s:t.subcategory};
+  t.category=window._swipeCat;t.subcategory=window._swipeSub||"";delete t.needsReview;save();render();
+  showUndoToast("Category → "+(t.subcategory||t.category),()=>{t.category=before.c;t.subcategory=before.s;save();});
+}
+
+// ── demo data for first-time users (Copilot demo mode) ──
+function loadDemoData(){
+  if(txns.length&&!confirm("Add sample data alongside your records? You can clear it later."))return;
+  const d=n=>ffxAddDays(ffxToday(),-n),D={demo:true};
+  const acc=[{id:"demo_gt",name:"GTBank (demo)",type:"bank",color:"#3b82f6"},{id:"demo_op",name:"Opay (demo)",type:"mobile",color:"#8b5cf6"},{id:"demo_cash",name:"Cash (demo)",type:"cash",color:"#22c55e"}].map(a=>({...a,...D,currency:currency.code}));
+  accounts.push(...acc);
+  const EC=getEC(),IC=getIC(),ok=(c,s,inc)=>{const m=inc?IC:EC;return Object.hasOwn(m,c)?[c,(m[c]||[]).includes(s)?s:((m[c]||[])[0]||"")]:[Object.keys(m)[0],""];};
+  const add=(n,amt,type,c,s,a,desc)=>{const [cc,ss]=ok(c,s,type==="income");txns.push({id:"demo_"+uid(),date:d(n),amount:amt,type,category:cc,subcategory:ss,accountId:a,description:desc,tags:[],...D});};
+  [58,28].forEach(n=>add(n,650000,"income","Salary","Primary Job","demo_gt","Salary"));
+  for(let i=0;i<55;i+=1){const r=i%7;
+    if(r===0)add(i,4500+(i%5)*300,"expense","Food & Dining","Restaurants","demo_op","Lunch");
+    if(r===1)add(i,3000,"expense","Transportation","Public Transport","demo_cash","Bus fare");
+    if(r===2)add(i,12000+(i%3)*1500,"expense","Food & Dining","Groceries","demo_gt","Market run");
+    if(r===3)add(i,1500,"expense","Communication","Data","demo_op","MTN data");
+    if(r===4)add(i,15000,"expense","Transportation","Fuel","demo_cash","Fuel");
+    if(r===5&&i<40)add(i,50,"expense","Fees & Charges","Stamp Duty","demo_gt","Stamp duty");
+  }
+  [52,22].forEach(n=>add(n,24500,"expense","Entertainment","Streaming","demo_gt","DSTV Compact"));
+  add(20,180000,"expense","Housing","Rent","demo_gt","Rent contribution");add(9,30000,"expense","Family Support","Parents","demo_op","Sent to mum");
+  budgets.push({id:"demo_b1",cat:ok("Food & Dining","",false)[0],limit:120000,period:"month",subs:[],...D},{id:"demo_b2",cat:ok("Transportation","",false)[0],limit:80000,period:"month",subs:[],...D});
+  goals.push({id:"demo_g1",name:"Emergency fund (demo)",target:500000,saved:140000,color:"#22c55e",...D});
+  ffx.debts.push({id:"demo_d1",person:"Tunde",amount:25000,direction:"lent",date:d(6),due:ffxAddDays(ffxToday(),5),note:"Demo IOU",payments:[],...D});
+  onboardComplete=true;save();render();showToast("👀 Sample data loaded — clear it anytime from the banner","green");
+}
+function hasDemoData(){return txns.some(t=>t.demo)||accounts.some(a=>a.demo);}
+function clearDemoData(){
+  if(!confirm("Remove all sample data? Your own records stay."))return;
+  txns=txns.filter(t=>!t.demo&&!String(t.accountId||"").startsWith("demo_"));accounts=accounts.filter(a=>!a.demo);budgets=budgets.filter(b=>!b.demo);goals=goals.filter(g=>!g.demo);ffx.debts=ffx.debts.filter(x=>!x.demo);
+  if(!accounts.length)accounts=[{id:"cash",name:"Cash",type:"cash",color:"#22c55e",currency:currency.code}];
+  save();render();showToast("Sample data removed","green");
+}
+function ffxDemoBanner(){return hasDemoData()?`<div class="ffx-demo"><span>👀 You're exploring <b>sample data</b></span><button onclick="clearDemoData()">Clear it</button></div>`:"";}
+function ffxInitUX(){updatePrivacyBtn();ffxInitGestures();}
