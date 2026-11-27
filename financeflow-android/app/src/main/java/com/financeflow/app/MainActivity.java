@@ -354,6 +354,11 @@ public class MainActivity extends AppCompatActivity {
 
     private class AndroidBridge {
         @JavascriptInterface
+        public String getAppVersion() {
+            return BuildConfig.VERSION_NAME + " · " + (ClaudeAssistant.AVAILABLE ? "Full" : "Standard");
+        }
+
+        @JavascriptInterface
         public boolean aiAvailable() { return ClaudeAssistant.AVAILABLE; }
 
         @JavascriptInterface

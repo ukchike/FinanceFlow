@@ -726,9 +726,13 @@ function updatePrivacyBtn(){const b=$("privBtn");if(b){b.innerHTML=privacyMode?"
 function setUxPref(k,v){uxPrefs[k]=v;uxSavePrefs();if(k==="secureRecents"&&window.Android&&window.Android.setSecureRecents)window.Android.setSecureRecents(!!v);if(v)haptic("light");render();}
 function uxPrivacyHTML(){
   const row=(label,sub,checked,on)=>`<div class="toggle-wrap mb8"><div><div class="fz12 fw6">${label}</div><div class="fz10 muted mt4">${sub}</div></div><label class="toggle"><input type="checkbox" ${checked?"checked":""} onchange="${on}"><span class="toggle-slider"></span></label></div>`;
-  return`<div class="card mb12"><div class="fz12 fw7 mb10">Privacy & feel</div>
+  return`<div class="card mb12"><div class="fz12 fw7 mb10">Privacy</div>
     ${row("&#128584; Hide amounts","Masks balances and amounts everywhere. Also toggled with the eye button at the top.",privacyMode,"togglePrivacy()")}
-    ${row("&#128737; Hide in recent apps","The app preview in the recent-apps screen is blanked so balances aren't visible.",uxPrefs.secureRecents,"setUxPref('secureRecents',this.checked)")}
+    ${row("&#128737; Hide in recent apps","The app preview in the recent-apps screen is blanked so balances aren't visible.",uxPrefs.secureRecents,"setUxPref('secureRecents',this.checked)")}</div>`;
+}
+function uxFeelHTML(){
+  const row=(label,sub,checked,on)=>`<div class="toggle-wrap mb8"><div><div class="fz12 fw6">${label}</div><div class="fz10 muted mt4">${sub}</div></div><label class="toggle"><input type="checkbox" ${checked?"checked":""} onchange="${on}"><span class="toggle-slider"></span></label></div>`;
+  return`<div class="card mb12"><div class="fz12 fw7 mb10">Feel</div>
     ${row("&#128243; Vibration feedback","A light tap when you save, delete or swipe.",uxPrefs.haptics,"setUxPref('haptics',this.checked)")}
     <div class="fz12 fw6 mt8">Insight tone</div><div class="fz10 muted mt4 mb8">How FinanceFlow talks about your spending on Home, in alerts and in your recap.</div>
     <div class="tab-row"><button class="tab-btn ${ffxTone()==="gentle"?"active":""}" onclick="setTone('gentle')">🌿 Gentle</button><button class="tab-btn ${ffxTone()==="roast"?"active":""}" onclick="setTone('roast')">🔥 Roast me</button></div></div>`;
@@ -1242,12 +1246,7 @@ const FFX_I18N={
 function T(s){const l=uxPrefs.lang||"en";if(l==="en")return s;const e=FFX_I18N[s];return(e&&e[l])||s;}
 function setLang(l){uxPrefs.lang=FFX_LANGS[l]?l:"en";uxSavePrefs();document.documentElement.lang=uxPrefs.lang==="pcm"?"en-NG":uxPrefs.lang;render();if(settingsOpen)renderSettings();}
 function setLite(on){uxPrefs.lite=on;uxSavePrefs();document.body.classList.toggle("lite",on);txRenderLimit=on?80:150;render();}
-function ffxAppearanceExtras(){
-  return`<span class="st-label mt12" style="margin-top:16px">Language <span class="ffx-beta">beta</span></span>
-    <select class="inp mb6" onchange="setLang(this.value)">${Object.entries(FFX_LANGS).map(([k,v])=>`<option value="${k}" ${(uxPrefs.lang||"en")===k?"selected":""}>${v}</option>`).join("")}</select>
-    <div class="fz10 muted mb16">Translates the main buttons, tabs and Home headings. Translations are a first draft — corrections are welcome.</div>
-    <div class="toggle-wrap mb6"><div><div class="fz12 fw6">⚡ Lite mode</div><div class="fz10 muted mt4">For older or low-memory phones: turns off animations, blur and shadows, and shows fewer rows at once.</div></div><label class="toggle"><input type="checkbox" ${uxPrefs.lite?"checked":""} onchange="setLite(this.checked)"><span class="toggle-slider"></span></label></div>`;
-}
+function ffxAppearanceExtras(){return`<div class="fz10 muted mt12">Language, tone, vibration and Lite mode are under <b>Settings › Preferences</b>.</div>`;}
 
 // ── family / household ledger via shared files ──
 function ffxDeviceId(){if(!ffx.deviceId){ffx.deviceId=uid();ffxSave();}return ffx.deviceId;}
@@ -1303,3 +1302,195 @@ function ffxFamilyHTML(){
 FFX_TOOLS.push({id:"scan",icon:"📷",label:"Scan receipt",sub:"Photo or screenshot"},{id:"assistant",icon:"🤖",label:"AI assistant",sub:"Ask with your Claude key"},{id:"wifi",icon:"💻",label:"Wi-Fi editor",sub:"Edit on a computer"},{id:"family",icon:"👨‍👩‍👧",label:"Family ledger",sub:"Share via WhatsApp"});
 FFX_RENDER.assistant=ffxAssistantHTML;FFX_RENDER.wifi=ffxLanHTML;FFX_RENDER.family=ffxFamilyHTML;
 FFX_RENDER.scan=()=>`<div class="ffx-hero"><div class="fz11 muted">Read on this phone — nothing is uploaded</div><div class="ffx-hero-num" style="font-size:22px">Scan a receipt or transfer screenshot</div><div class="fz11 muted">Works with POS slips and screenshots from OPay, Moniepoint, Kuda, PalmPay and bank apps. FinanceFlow reads the amount, date, who you paid and the reference, then lets you check before saving.</div></div><button class="btn btn-p w100" style="justify-content:center;padding:13px" onclick="startReceiptScan()">📷 Choose a photo or screenshot</button><div class="fz10 muted mt10">Tip: take the photo first with your camera app, flat and well lit, then pick it here.</div>`;
+
+// ════════════════ Tab upgrades: Stats, History, Projects, Settings ════════════════
+// ── Stats ──
+function ffxPrevDate(mode,date){const d=new Date(date);if(mode==="week")d.setDate(d.getDate()-7);else if(mode==="month"){d.setDate(1);d.setMonth(d.getMonth()-1);}else if(mode==="quarter"){d.setDate(1);d.setMonth(d.getMonth()-3);}else d.setFullYear(d.getFullYear()-1);return d;}
+function ffxStatsData(type,mode,date){
+  const r=getRangeFor(mode,date),p=getRangeFor(mode,ffxPrevDate(mode,date));
+  const list=txns.filter(t=>t.type===type&&t.date>=r.startStr&&t.date<=r.endStr);
+  const prev=txns.filter(t=>t.type===type&&t.date>=p.startStr&&t.date<=p.endStr);
+  const sum=l=>l.reduce((s,t)=>s+ffxPA(t),0),today=ffxToday(),endCap=r.endStr<today?r.endStr:today;
+  return{r,list,count:list.length,total:sum(list),prevTotal:sum(prev),days:Math.max(1,ffxDaysBetween(r.startStr,endCap)+1)};
+}
+function ffxStatsSummaryHTML(type){
+  const d=ffxStatsData(type,pMode,pDate);if(!d.count&&!d.prevTotal)return"";
+  const chg=d.prevTotal>0?(d.total-d.prevTotal)/d.prevTotal*100:null,good=type==="income"?chg>=0:chg<=0;
+  const label={week:"last week",month:"last month",quarter:"last quarter",year:"last year"}[pMode]||"before";
+  return`<div class="ffx-ssum"><div><span>Per day</span><b>${fmtK(d.total/d.days)}</b></div><div><span>vs ${label}</span><b class="${chg===null?"":good?"green":"red"}">${chg===null?"—":(chg>=0?"▲ ":"▼ ")+Math.abs(chg).toFixed(0)+"%"}</b></div><div><span>Entries</span><b>${d.count}</b></div></div>`;
+}
+function ffxViewCat(cat,type){fCat=cat;fType=type;fAcc="all";search="";ffxHist.flag="";ffxHist.min="";ffxHist.max="";goTo("transactions");}
+function ffxViewSearch(text,type){fCat="all";fType=type;fAcc="all";search=text;ffxHist.flag="";ffxHist.min="";ffxHist.max="";goTo("transactions");}
+function ffxStatsExtrasHTML(type){
+  const d=ffxStatsData(type,pMode,pDate);if(!d.count)return"";
+  const isExp=type==="expense",names=["Mon","Tue","Wed","Thu","Fri","Sat","Sun"],wd=[0,0,0,0,0,0,0];
+  d.list.forEach(t=>{const dt=FinanceCore.date(t.date);if(dt)wd[(dt.getDay()+6)%7]+=ffxPA(t);});
+  const wmax=Math.max(...wd,1),wtop=wd.indexOf(Math.max(...wd));
+  const weekday=`<div class="card"><div class="flex-b mb8"><span class="fz12 fw7">${isExp?"Spending":"Income"} by weekday</span><span class="fz10 muted">Busiest: ${names[wtop]}</span></div><div class="ffx-bars" style="height:86px">${wd.map((v,i)=>`<div class="ffx-bar-col"><div class="ffx-bar-val">${v?fmtK(v):""}</div><div class="ffx-bar" style="height:${Math.max(v/wmax*100,v?4:0)}%;${i===wtop?"":"opacity:.45;"}background:${isExp?"var(--red)":"var(--green)"}"></div><div class="ffx-bar-lbl">${names[i]}</div></div>`).join("")}</div></div>`;
+  const pm={};d.list.forEach(t=>{const lab=(t.description||"").trim();if(!lab)return;const o=pm[lab.toLowerCase()]=pm[lab.toLowerCase()]||{lab,total:0,n:0};o.total+=ffxPA(t);o.n++;});
+  const top=Object.values(pm).sort((a,b)=>b.total-a.total).slice(0,5),tmax=top[0]?top[0].total:1;
+  const payees=top.length?`<div class="card"><div class="fz12 fw7 mb8">${isExp?"Where it went":"Who paid you"}</div>${top.map(o=>`<button class="ffx-prow" onclick="ffxViewSearch('${escJs(o.lab)}','${type}')"><div class="flex-b"><span class="fz12 fw6 ellip">${esc(o.lab)}</span><span class="fz12 fw7">${fmt(o.total)}</span></div><div class="bar-track mt4"><div class="bar-fill" style="width:${o.total/tmax*100}%;background:${isExp?"var(--red)":"var(--green)"};opacity:.7"></div></div><div class="fz9 muted mt4">${o.n} time${o.n===1?"":"s"} · tap to see them</div></button>`).join("")}</div>`:"";
+  const big=d.list.slice().sort((a,b)=>ffxPA(b)-ffxPA(a)).slice(0,3);
+  const biggest=`<div class="card"><div class="fz12 fw7 mb4">Biggest ${isExp?"purchases":"payments"}</div>${big.map(t=>`<div class="ffx-row" style="cursor:pointer" onclick="showModal('edit','${escJs(t.id)}')"><div style="min-width:0"><div class="fz12 fw6 ellip">${esc(t.description||t.category)}</div><div class="fz10 muted">${fmtD(t.date)} · ${esc(t.category||"")}</div></div><div class="fz12 fw8 ${isExp?"red":"green"}">${fmtTxn(t)}</div></div>`).join("")}</div>`;
+  const months=[];for(let i=5;i>=0;i--){const m=new Date(pDate.getFullYear(),pDate.getMonth()-i,1),r=getRangeFor("month",m);months.push({label:MO[m.getMonth()],cur:i===0,v:txns.filter(t=>t.type===type&&t.date>=r.startStr&&t.date<=r.endStr).reduce((s,t)=>s+ffxPA(t),0)});}
+  const mmax=Math.max(...months.map(m=>m.v),1),avg=months.reduce((s,m)=>s+m.v,0)/6;
+  const trend=`<div class="card"><div class="flex-b mb8"><span class="fz12 fw7">Last 6 months</span><span class="fz10 muted">Average ${fmtK(avg)}</span></div><div class="ffx-bars" style="height:96px">${months.map(m=>`<div class="ffx-bar-col"><div class="ffx-bar-val">${m.v?fmtK(m.v):""}</div><div class="ffx-bar" style="height:${Math.max(m.v/mmax*100,m.v?4:0)}%;${m.cur?"":"opacity:.45;"}background:${isExp?"var(--red)":"var(--green)"}"></div><div class="ffx-bar-lbl" style="${m.cur?"font-weight:800;color:var(--text)":""}">${m.label}</div></div>`).join("")}</div></div>`;
+  return trend+weekday+payees+biggest;
+}
+
+// ── History ──
+let ffxHist={open:false,sort:"new",min:"",max:"",flag:""};
+function ffxLargeThreshold(){
+  const from=ffxAddDays(ffxToday(),-120),a=txns.filter(t=>t.type==="expense"&&t.date>=from).map(ffxPA).sort((x,y)=>x-y);
+  return a.length<10?Infinity:a[Math.floor(a.length*0.9)];
+}
+function ffxHistMatch(t){
+  const f=ffxHist;if(!f.flag&&!f.min&&!f.max)return true;
+  const a=t.type==="transfer"?(Number(t.amount)||0):ffxPA(t);
+  if(f.min&&a<parseAmount(f.min))return false;
+  if(f.max&&a>parseAmount(f.max))return false;
+  if(f.flag==="review"&&!t.needsReview)return false;
+  if(f.flag==="uncleared"&&(t.type==="transfer"||t.cleared))return false;
+  if(f.flag==="receipt"&&!(t.receipt||t.source==="Receipt"))return false;
+  if(f.flag==="large"&&!(t.type==="expense"&&a>=ffxLargeThreshold()))return false;
+  return true;
+}
+function ffxHistSorted(list){
+  const a=list.slice(),amt=t=>t.type==="transfer"?(Number(t.amount)||0):ffxPA(t);
+  if(ffxHist.sort==="big")return a.sort((x,y)=>amt(y)-amt(x));
+  if(ffxHist.sort==="small")return a.sort((x,y)=>amt(x)-amt(y));
+  if(ffxHist.sort==="old")return a.sort((x,y)=>x.date.localeCompare(y.date));
+  return a.sort((x,y)=>y.date.localeCompare(x.date));
+}
+const ffxHistFlat=()=>ffxHist.sort==="big"||ffxHist.sort==="small";
+function ffxHistActiveCount(){return(fType!=="all")+(fCat!=="all")+(fAcc!=="all")+(!!ffxHist.min)+(!!ffxHist.max)+(!!ffxHist.flag)+(ffxHist.sort!=="new");}
+function ffxSetFlag(k){ffxHist.flag=ffxHist.flag===k?"":k;haptic("light");render();}
+function ffxHistReset(){fType="all";fCat="all";fAcc="all";search="";ffxHist.min="";ffxHist.max="";ffxHist.flag="";ffxHist.sort="new";render();}
+function ffxHistFilterBar(){
+  const f=ffxHist,n=ffxHistActiveCount(),r=getRangeFor(pMode,pDate),inR=txns.filter(t=>t.date>=r.startStr&&t.date<=r.endStr);
+  const cnt={review:inR.filter(t=>t.needsReview).length,uncleared:inR.filter(t=>t.type!=="transfer"&&!t.cleared).length,receipt:inR.filter(t=>t.receipt||t.source==="Receipt").length};
+  const chip=(k,label,c)=>`<button class="ffx-hchip ${f.flag===k?"on":""}" aria-pressed="${f.flag===k}" onclick="ffxSetFlag('${k}')">${label}${c!==undefined?` <i>${c}</i>`:""}</button>`;
+  const sortName={new:"Newest first",old:"Oldest first",big:"Largest first",small:"Smallest first"};
+  const tags=[];
+  if(fType!=="all")tags.push(["Type: "+fType,"fType='all'"]);
+  if(fCat!=="all")tags.push([fCat,"fCat='all'"]);
+  if(fAcc!=="all")tags.push([accName(fAcc)||"Account","fAcc='all'"]);
+  if(f.min)tags.push(["Min "+f.min,"ffxHist.min=''"]);
+  if(f.max)tags.push(["Max "+f.max,"ffxHist.max=''"]);
+  if(f.sort!=="new")tags.push([sortName[f.sort],"ffxHist.sort='new'"]);
+  const panel=f.open?`<div class="ffx-hpanel"><div class="tx-filters" style="grid-template-columns:repeat(3,minmax(0,1fr))">
+      <select class="inp" aria-label="Type" style="font-size:12px" onchange="fType=this.value;render()"><option value="all">All types</option>${["income","expense","transfer"].map(x=>`<option value="${x}" ${fType===x?"selected":""}>${x[0].toUpperCase()+x.slice(1)}</option>`).join("")}</select>
+      <select class="inp" aria-label="Category" style="font-size:12px" onchange="fCat=this.value;render()"><option value="all">All categories</option>${allCats().map(c=>`<option value="${esc(c)}" ${fCat===c?"selected":""}>${esc(c)}</option>`).join("")}</select>
+      <select class="inp" aria-label="Account" style="font-size:12px" onchange="fAcc=this.value;render()"><option value="all">All accounts</option>${accounts.map(a=>`<option value="${esc(a.id)}" ${fAcc===a.id?"selected":""}>${esc(a.name)}</option>`).join("")}</select></div>
+    <div class="grid2 mt8" style="gap:8px"><input class="inp" inputmode="decimal" aria-label="Minimum amount" style="font-size:12px" placeholder="Min amount" value="${esc(f.min)}" onchange="ffxHist.min=this.value;render()"><input class="inp" inputmode="decimal" aria-label="Maximum amount" style="font-size:12px" placeholder="Max amount" value="${esc(f.max)}" onchange="ffxHist.max=this.value;render()"></div>
+    <select class="inp mt8" aria-label="Sort" style="font-size:12px" onchange="ffxHist.sort=this.value;render()">${Object.entries(sortName).map(([k,v])=>`<option value="${k}" ${f.sort===k?"selected":""}>${v}</option>`).join("")}</select>
+    <div class="flex g6 mt8"><button class="btn btn-g btn-sm" style="flex:1;justify-content:center" onclick="ffxHistReset()">Reset all</button><button class="btn btn-g btn-sm" style="flex:1;justify-content:center" onclick="exportFilteredCSV()">⤓ Export these</button></div></div>`:"";
+  return`<div class="ffx-hf"><div class="flex g6"><div style="position:relative;flex:1"><span style="position:absolute;left:10px;top:11px;font-size:12px" class="muted">&#128269;</span><input class="inp" id="si" aria-label="Search transactions" style="padding-left:30px;font-size:13px" placeholder="Search description, category, tag…" value="${esc(search)}" oninput="doS(this.value)"></div><button class="ffx-hbtn ${n||f.open?"on":""}" aria-expanded="${f.open}" onclick="ffxHist.open=!ffxHist.open;render()">⚙ Filters${n?` <i>${n}</i>`:""}</button></div>
+    <div class="ffx-hchips">${chip("review","📥 Review",cnt.review)}${chip("uncleared","○ Uncleared",cnt.uncleared)}${chip("receipt","📷 Receipts",cnt.receipt)}${chip("large","⬆ Large")}</div>
+    ${panel}${tags.length?`<div class="ffx-hchips">${tags.map(([l,c])=>`<button class="ffx-hchip tag" onclick="${c};render()">${esc(l)} ✕</button>`).join("")}${tags.length>1?`<button class="ffx-hchip" onclick="ffxHistReset()">Clear all</button>`:""}</div>`:""}</div>`;
+}
+function ffxFlatCardHTML(sorted){
+  const shown=sorted.slice(0,txRenderLimit),left=sorted.length-shown.length;
+  window._txShown=shown.length;
+  return`<div class="card" style="padding:0;overflow:hidden"><div class="date-hdr flex-b"><span>${ffxHist.sort==="big"?"Largest first":"Smallest first"}</span><span class="date-hdr-tot"></span></div>${shown.length?shown.map(t=>txListRow(t,selectMode)).join(""):'<div class="muted fz12 tac" style="padding:40px">No transactions found</div>'}${left>0?`<button class="btn btn-g w100 ffx-more" onclick="txRenderLimit+=200;render()">Show ${Math.min(left,200)} more · ${left} older</button>`:""}</div>`;
+}
+function ffxCsv(list,filename){
+  const q=v=>{let s=String(v??"");if(/^[=+\-@\t\r]/.test(s)&&isNaN(Number(s)))s="'"+s;return'"'+s.replace(/"/g,'""')+'"';};
+  const rows=[["Date","Description","Type","Category","Subcategory","Account","Amount","Currency","Tags"],...list.map(t=>t.type==="transfer"?[t.date,t.description||"","transfer","Transfer","",accName(t.fromAccountId)+" -> "+accName(t.toAccountId),t.amount,txnCurrency(t),(t.tags||[]).join("; ")]:[t.date,t.description||"",t.type,t.category||"",t.subcategory||"",accName(t.accountId),t.amount,txnCurrency(t),(t.tags||[]).join("; ")])];
+  saveOrDownload(filename,rows.map(r=>r.map(q).join(",")).join("\n"),"text/csv");
+}
+function exportFilteredCSV(){const l=ffxHistSorted(getF());if(!l.length)return showToast("Nothing to export","warn");ffxCsv(l,"financeflow-history-"+ffxToday()+".csv");}
+
+// ── Projects ──
+function ffxProjStats(p){
+  const ex=txns.filter(t=>t.projectId===p.id&&t.type==="expense"),spent=ex.reduce((s,t)=>s+ffxPA(t),0);
+  const committed=commitments.filter(c=>c.projectId===p.id&&c.status==="open").reduce((s,c)=>s+Number(c.amount||0),0);
+  const budget=Number(p.budget)||0,today=ffxToday(),start=FinanceCore.date(p.startDate)?p.startDate:null,end=FinanceCore.date(p.expectedEndDate)?p.expectedEndDate:null;
+  const elapsed=start?Math.max(0,ffxDaysBetween(start,today)+1):0,total=start&&end?Math.max(1,ffxDaysBetween(start,end)+1):0,left=end?ffxDaysBetween(today,end):null,burn=elapsed>0?spent/elapsed:0;
+  const projected=end&&elapsed>=7&&left>0&&p.status==="active"?spent+burn*left+committed:null;
+  return{ex,spent,committed,budget,start,end,elapsed,total,left,burn,projected,used:budget>0?(spent+committed)/budget*100:0};
+}
+function ffxProjectCard(p,selected){
+  const s=ffxProjStats(p),over=s.budget>0&&s.spent+s.committed>s.budget;
+  const due=p.status!=="active"||s.left===null?"":s.left<0?`<span class="ffx-pill bad">${-s.left}d overdue</span>`:s.left<=7?`<span class="ffx-pill warn">${s.left}d left</span>`:`<span class="ffx-pill">${s.left}d left</span>`;
+  return`<button class="card ffx-pcard ${selected&&selected.id===p.id?"sel":""}" onclick="selectedProjectId='${escJs(p.id)}';render()"><div class="flex-b g6"><span class="fz12 fw7 ellip">${esc(p.name)}</span><span class="ffx-pill ${p.status==="active"?"ok":""}">${projectStatusLabel(p.status)}</span></div>
+    <div class="fz14 fw8 mt6 ${over?"red":""}">${fmtK(s.spent+s.committed)}<span class="fz10 muted fw6"> of ${fmtK(s.budget)}</span></div>
+    <div class="bar-track mt6"><div class="bar-fill" style="width:${Math.min(100,s.used)}%;background:${over?"var(--red)":s.used>=80?"var(--warn)":"var(--accent)"}"></div></div>
+    <div class="flex-b mt6 fz9 muted g6"><span>${over?"▲ Over by "+fmtK(s.spent+s.committed-s.budget):s.budget>0?fmtK(s.budget-s.spent-s.committed)+" left":"No budget set"}</span>${due}</div></button>`;
+}
+function ffxProjectSummaryHTML(){
+  if(!projects.length)return"";
+  const act=projects.filter(p=>p.status==="active"),st=act.map(ffxProjStats);
+  const budget=st.reduce((s,x)=>s+x.budget,0),used=st.reduce((s,x)=>s+x.spent+x.committed,0),over=st.filter(x=>x.budget>0&&x.spent+x.committed>x.budget).length;
+  return`<div class="ffx-ssum mb10"><div><span>Active</span><b>${act.length}</b></div><div><span>Spent + committed</span><b>${fmtK(used)}</b></div><div><span>Of budgets</span><b>${fmtK(budget)}</b></div><div><span>Over budget</span><b class="${over?"red":""}">${over?"▲ ":""}${over}</b></div></div>`;
+}
+function ffxAddProjectExpense(id){showModal("addtx");const s=$("txProject");if(s)s.value=id;setTimeout(()=>{const a=$("txAmt");if(a)a.focus();},250);}
+function ffxProjectInsightsHTML(p){
+  const s=ffxProjStats(p),today=ffxToday();
+  const start=s.start||(s.ex.length?s.ex.slice().sort((a,b)=>a.date.localeCompare(b.date))[0].date:today);
+  const endD=s.end&&s.end>today?s.end:today,span=Math.max(1,ffxDaysBetween(start,endD));
+  let cum=0;const pts=[[0,0]];
+  s.ex.slice().sort((a,b)=>a.date.localeCompare(b.date)).forEach(t=>{cum+=ffxPA(t);pts.push([Math.max(0,Math.min(span,ffxDaysBetween(start,t.date))),cum]);});
+  const tx=Math.min(span,Math.max(0,ffxDaysBetween(start,today)));pts.push([tx,cum]);
+  const maxV=Math.max(s.budget,cum+s.committed,s.projected||0,1)*1.06,W=300,H=84,X=d=>d/span*W,Y=v=>H-(v/maxV)*(H-6)-3;
+  const line=pts.map((q,i)=>(i?"L":"M")+X(q[0]).toFixed(1)+","+Y(q[1]).toFixed(1)).join(" ");
+  const over=s.budget>0&&cum+s.committed>s.budget;
+  const chart=s.ex.length?`<svg viewBox="0 0 ${W} ${H}" class="ffx-pace" preserveAspectRatio="none" aria-hidden="true">
+    ${s.budget>0?`<line x1="0" x2="${W}" y1="${Y(s.budget)}" y2="${Y(s.budget)}" stroke="var(--red)" stroke-width="1" stroke-dasharray="3 3" opacity=".7"/>`:""}
+    ${s.budget>0&&s.end?`<line x1="0" y1="${Y(0)}" x2="${W}" y2="${Y(s.budget)}" stroke="var(--muted)" stroke-width="1" stroke-dasharray="4 4" opacity=".5"/>`:""}
+    ${s.projected!==null?`<line x1="${X(tx)}" y1="${Y(cum)}" x2="${W}" y2="${Y(s.projected)}" stroke="${over||s.projected>s.budget&&s.budget>0?"var(--red)":"var(--accent)"}" stroke-width="2" stroke-dasharray="2 4" stroke-linecap="round"/>`:""}
+    <path d="${line}" fill="none" stroke="${over?"var(--red)":"var(--accent)"}" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/><circle cx="${X(tx)}" cy="${Y(cum)}" r="3.5" fill="${over?"var(--red)":"var(--accent)"}"/></svg>`:"";
+  let msg="";
+  if(s.projected!==null)msg=s.budget>0?(s.projected>s.budget?`<b class="red">▲ At this pace you'll reach ${fmt(s.projected)} by ${fmtD(s.end)} — ${fmt(s.projected-s.budget)} over budget.</b>`:`<b class="green">✓ At this pace you'll finish near ${fmt(s.projected)} — ${fmt(s.budget-s.projected)} under budget.</b>`):`At this pace you'll reach about ${fmt(s.projected)} by ${fmtD(s.end)}.`;
+  else if(s.spent>0&&s.elapsed>0)msg=`Spending about ${fmt(s.burn)} a day so far.`;
+  const prog=s.total?`Day ${Math.min(s.elapsed,s.total)} of ${s.total}`+(s.left!==null?` · ${s.left<0?-s.left+" days overdue":s.left+" days left"}`:""):"";
+  const cats={};s.ex.forEach(t=>cats[t.category]=(cats[t.category]||0)+ffxPA(t));
+  const top=Object.entries(cats).sort((a,b)=>b[1]-a[1]).slice(0,5),tmax=top[0]?top[0][1]:1;
+  const catHTML=top.length?`<div class="fz11 fw7 mb6 mt12">Where the money went</div>${top.map(([c,v])=>`<button class="ffx-prow" onclick="projectCategory='${escJs(c)}';render()"><div class="flex-b"><span class="fz11 fw6"><span class="cat-dot" style="display:inline-block;background:${clr(c)};margin-right:6px"></span>${esc(c)}</span><span class="fz11 fw7">${fmt(v)} <span class="muted fw6">· ${(v/Math.max(cum,1)*100).toFixed(0)}%</span></span></div><div class="bar-track mt4"><div class="bar-fill" style="width:${v/tmax*100}%;background:${clr(c)}"></div></div></button>`).join("")}`:"";
+  return`<div class="ffx-pins"><div class="flex-b mb4"><span class="fz11 fw7">Spending vs budget</span><span class="fz10 muted">${prog}</span></div>${chart||`<div class="fz10 muted">No expenses linked yet. Choose this project when you add an expense.</div>`}${chart?`<div class="flex g10 fz9 muted mt4"><span><span class="ffx-key" style="background:var(--accent)"></span>Spent</span>${s.budget>0?`<span><span class="ffx-key" style="background:var(--red)"></span>Budget</span>`:""}${s.budget>0&&s.end?`<span><span class="ffx-key dashed"></span>Planned pace</span>`:""}</div>`:""}
+    ${msg?`<div class="fz11 mt8">${msg}</div>`:""}${catHTML}
+    <button class="btn btn-p w100 mt12" style="justify-content:center" onclick="ffxAddProjectExpense('${escJs(p.id)}')">+ Add expense to this project</button></div>`;
+}
+
+// ── Settings ──
+function ffxVersionLabel(){try{if(window.Android&&window.Android.getAppVersion)return"Version "+window.Android.getAppVersion();}catch(e){}return"Version (preview)";}
+function ffxBackupAge(){const t=Number(appStorage.getItem("ffd_lastbackup"))||0;return t?Math.floor((Date.now()-t)/864e5):null;}
+const FFX_SET_GROUPS=[
+  {title:"Your money",items:[["accounts","🏦","Accounts"],["budgets","🎯","Budgets"],["goals","🏆","Goals"],["recurring","🔁","Recurring"],["categories","🗂️","Categories"],["tags","🏷️","Tags"],["rules","📝","Auto-categorize rules"]]},
+  {title:"The app",items:[["tools","🧰","Money tools"],["appearance","🎨","Appearance"],["preferences","🎚️","Preferences"],["security","🔒","Security & privacy"],["notifications","🔔","Bank Alerts"]]},
+  {title:"Your data",items:[["backup","☁️","Backup & Restore"],["about","ℹ️","About"]]}];
+function ffxSetTileSub(id){
+  if(id==="tools")return"Forecast, ajo, IOUs, scan, AI…";
+  if(id==="preferences")return(FFX_LANGS[uxPrefs.lang||"en"])+" · "+(ffxTone()==="roast"?"Roast":"Gentle")+(uxPrefs.lite?" · Lite":"");
+  if(id==="security"){const base=settingsItemSub("security");return privacyMode?base+" · amounts hidden":base;}
+  if(id==="rules")return importRules.length?importRules.length+" rule"+(importRules.length===1?"":"s"):"Teach it your payees";
+  if(id==="backup"){const a=ffxBackupAge();return a===null?"Never backed up":a===0?"Backed up today":"Last backup "+a+"d ago";}
+  return settingsItemSub(id);
+}
+function ffxSetTilesHTML(q){
+  q=String(q||"").trim().toLowerCase();let out="";
+  FFX_SET_GROUPS.forEach(g=>{
+    const items=g.items.filter(([id,,label])=>!q||(label+" "+ffxSetTileSub(id)+" "+id).toLowerCase().includes(q));if(!items.length)return;
+    out+=`<div class="ffx-sgroup">${esc(g.title)}</div><div class="settings-grid">${items.map(([id,icon,label])=>`<button class="settings-card" onclick="${id==="tools"?"closeSettings();openTool('hub')":`setSTTab('${id}')`}"><div class="settings-card-icon">${icon}</div><div class="settings-card-label">${esc(label)}</div><div class="settings-card-sub ellip">${ffxSetTileSub(id)}</div></button>`).join("")}</div>`;
+  });
+  return out||`<div class="empty-state mt12"><div class="empty-ic">🔎</div><div class="fz13 fw7">No settings match “${esc(q)}”</div></div>`;
+}
+function ffxSetSearch(v){ffxState.setQ=v;const g=$("stGrid");if(g)g.innerHTML=ffxSetTilesHTML(v);}
+function ffxSettingsHomeHTML(){
+  const age=ffxBackupAge(),needsBackup=txns.length>=10&&(age===null||age>=30);
+  const initial=(profile.name||"?").trim().charAt(0).toUpperCase()||"?";
+  const lock=biometricEnabled||pinHash;
+  return`<div class="st-section">
+    <button class="ffx-prof" onclick="setSTTab('profile')"><div class="ffx-prof-av">${esc(initial)}</div><div style="flex:1;min-width:0;text-align:left"><div class="fz14 fw8 ellip">${esc(profile.name)||"Set up your profile"}</div>
+      <div class="ffx-prof-chips"><span class="${lock?"ok":"warn"}">${lock?"🔒 Locked":"🔓 No lock"}</span><span>${currency.code}</span><span>${accounts.length} account${accounts.length===1?"":"s"}</span><span>${txns.length.toLocaleString()} entries</span></div></div><span class="muted" style="font-size:18px">›</span></button>
+    ${needsBackup?`<button class="ffx-backup-warn" onclick="setSTTab('backup')"><span style="font-size:20px">💾</span><div style="text-align:left;flex:1"><div class="fz12 fw8">${age===null?"You haven't backed up yet":"Last backup was "+age+" days ago"}</div><div class="fz10" style="opacity:.85">Your data lives only on this phone. Tap to save a copy.</div></div><span>›</span></button>`:""}
+    <div class="ffx-ssearch"><span>🔎</span><input id="stSearch" aria-label="Search settings" placeholder="Search settings" autocomplete="off" value="${esc(ffxState.setQ||"")}" oninput="ffxSetSearch(this.value)"></div>
+    <div id="stGrid">${ffxSetTilesHTML(ffxState.setQ)}</div></div>`;
+}
+function ffxPreferencesHTML(){
+  return`<div class="st-section">${uxFeelHTML()}
+    <span class="st-label" style="margin-top:6px">Language <span class="ffx-beta">beta</span></span>
+    <select class="inp mb6" onchange="setLang(this.value)">${Object.entries(FFX_LANGS).map(([k,v])=>`<option value="${k}" ${(uxPrefs.lang||"en")===k?"selected":""}>${v}</option>`).join("")}</select>
+    <div class="fz10 muted mb16">Translates the main tabs, buttons and Home headings. These are first-draft translations.</div>
+    <div class="toggle-wrap mb6"><div><div class="fz12 fw6">⚡ Lite mode</div><div class="fz10 muted mt4">For older or low-memory phones: no animations, blur or shadows, and fewer rows at once.</div></div><label class="toggle"><input type="checkbox" ${uxPrefs.lite?"checked":""} onchange="setLite(this.checked)"><span class="toggle-slider"></span></label></div></div>`;
+}
