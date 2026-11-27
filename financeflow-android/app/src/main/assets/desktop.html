@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>FinanceFlow desktop</title>
+<style>
+:root{--bg:#f4f5f7;--card:#fff;--text:#111318;--muted:#666b76;--border:#dde1e8;--accent:#2563eb;--red:#dc2626;--green:#16a34a;--warn:#c2760a;--changed:#fff7e0;--new:#e8f6ec;--del:#fdecec}
+@media(prefers-color-scheme:dark){:root{--bg:#0b0b0c;--card:#151517;--text:#f2f2f5;--muted:#8b8b93;--border:#2a2a2e;--accent:#3b82f6;--red:#ef4444;--green:#22c55e;--warn:#f59e0b;--changed:#2a2412;--new:#10251a;--del:#2b1414}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:14px/1.4 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-variant-numeric:tabular-nums}
+header{position:sticky;top:0;z-index:5;background:var(--card);border-bottom:1px solid var(--border);padding:12px 20px;display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+h1{font-size:17px;margin:0 12px 0 0}
+input,select,button{font:inherit;color:inherit}
+.inp{background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:7px 10px}
+button{border:1px solid var(--border);background:var(--card);border-radius:8px;padding:7px 12px;cursor:pointer;font-weight:600}
+button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+button:disabled{opacity:.45;cursor:default}
+main{padding:16px 20px}
+table{width:100%;border-collapse:collapse;background:var(--card);border:1px solid var(--border);border-radius:12px;overflow:hidden}
+th{position:sticky;top:61px;background:var(--card);text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);padding:8px;border-bottom:1px solid var(--border);z-index:2}
+td{border-bottom:1px solid var(--border);padding:3px 4px}
+td input,td select{width:100%;border:1px solid transparent;background:transparent;border-radius:6px;padding:5px 6px}
+td input:focus,td select:focus{border-color:var(--accent);outline:none;background:var(--bg)}
+td.amt input{text-align:right}
+tr.changed td{background:var(--changed)}tr.new td{background:var(--new)}tr.del td{background:var(--del);opacity:.6;text-decoration:line-through}
+tr.ro td{color:var(--muted)}
+.muted{color:var(--muted)}.spacer{flex:1}
+#login{max-width:360px;margin:12vh auto;background:var(--card);border:1px solid var(--border);border-radius:16px;padding:24px}
+#login input{width:100%;font-size:22px;letter-spacing:6px;text-align:center;margin:12px 0}
+.msg{padding:8px 12px;border-radius:8px;margin:0 0 12px;font-weight:600}
+.err{background:var(--del);color:var(--red)}.ok{background:var(--new);color:var(--green)}
+.sum{display:flex;gap:18px;margin-bottom:12px;flex-wrap:wrap}
+.sum div{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:8px 12px}
+.sum b{display:block;font-size:16px}
+</style>
+</head>
+<body>
+<div id="login">
+  <h1>FinanceFlow on your computer</h1>
+  <p class="muted">Enter the 6-digit PIN shown on your phone under Money tools › Wi-Fi editor.</p>
+  <div id="loginMsg"></div>
+  <input id="pin" inputmode="numeric" maxlength="6" autocomplete="off" placeholder="••••••">
+  <button class="primary" style="width:100%" onclick="login()">Connect</button>
+  <p class="muted" style="font-size:12px;margin-top:14px">Your phone stays the master copy. Nothing leaves your Wi-Fi network.</p>
+</div>
+<div id="app" hidden>
+<header>
+  <h1>FinanceFlow</h1>
+  <input class="inp" id="q" placeholder="Search description, category…" oninput="draw()">
+  <select class="inp" id="fMonth" onchange="draw()"></select>
+  <select class="inp" id="fType" onchange="draw()"><option value="">All types</option><option value="expense">Expenses</option><option value="income">Income</option><option value="transfer">Transfers</option></select>
+  <span class="spacer"></span>
+  <button onclick="addRow()">+ Add row</button>
+  <button onclick="exportCsv()">Export CSV</button>
+  <button onclick="reload()">Reload</button>
+  <button class="primary" id="saveBtn" onclick="saveChanges()" disabled>Save changes</button>
+</header>
+<main>
+  <div id="msg"></div>
+  <div class="sum" id="sum"></div>
+  <table><thead><tr><th style="width:120px">Date</th><th>Description</th><th style="width:100px">Type</th><th style="width:190px">Category</th><th style="width:150px">Subcategory</th><th style="width:150px">Account</th><th style="width:130px">Amount</th><th style="width:44px"></th></tr></thead><tbody id="rows"></tbody></table>
+  <p class="muted" id="count"></p>
+</main>
+</div>
+<script>
+let PIN="",data=null,edits={},adds=[],dels=new Set(),seq=0;
+const $=id=>document.getElementById(id);
+const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const fmt=n=>(data?.symbol||"")+Number(n||0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
+async function api(path,body){
+  const r=await fetch(path,{method:body?"POST":"GET",headers:{"X-FF-PIN":PIN,"Content-Type":"application/json"},body:body?JSON.stringify(body):undefined});
+  const j=await r.json().catch(()=>({error:"Unexpected response"}));
+  if(!r.ok)throw new Error(j.error||("HTTP "+r.status));
+  return j;
+}
+async function login(){
+  PIN=$("pin").value.trim();
+  try{await reload();$("login").hidden=true;$("app").hidden=false;}
+  catch(e){$("loginMsg").innerHTML=`<div class="msg err">${esc(e.message)}</div>`;}
+}
+$("pin").addEventListener("keydown",e=>{if(e.key==="Enter")login();});
+async function reload(){
+  if(pending()&&!confirm("Discard unsaved changes?"))return;
+  const j=await api("/api/data");
+  if(!j.ok)throw new Error(j.error||"Couldn't load data");
+  data=j;edits={};adds=[];dels=new Set();
+  const months=[...new Set(data.txns.map(t=>t.date.slice(0,7)))].sort().reverse();
+  $("fMonth").innerHTML=`<option value="">All months</option>`+months.map(m=>`<option>${m}</option>`).join("");
+  if(months[0])$("fMonth").value=months[0];
+  draw();
+}
+const pending=()=>Object.keys(edits).length+adds.length+dels.size;
+const catsFor=type=>type==="income"?data.categories.income:data.categories.expense;
+function rowObj(t){return Object.assign({},t,edits[t.id]||{});}
+function rowHTML(t,isNew){
+  const r=isNew?t:rowObj(t),ro=r.type==="transfer";
+  const cats=ro?{}:catsFor(r.type),subs=cats[r.category]||[];
+  const cls=isNew?"new":dels.has(r.id)?"del":edits[r.id]?"changed":ro?"ro":"";
+  const key=isNew?`n:${r._k}`:`e:${r.id}`;
+  if(ro)return`<tr class="${cls}"><td>${esc(r.date)}</td><td>${esc(r.description)}</td><td>transfer</td><td colspan="3" class="muted">${esc(r.from)} → ${esc(r.to)} (edit transfers on the phone)</td><td class="amt" style="text-align:right">${fmt(r.amount)}</td><td></td></tr>`;
+  return`<tr class="${cls}">
+  <td><input type="date" value="${esc(r.date)}" onchange="setF('${key}','date',this.value)"></td>
+  <td><input value="${esc(r.description)}" onchange="setF('${key}','description',this.value)"></td>
+  <td><select onchange="setF('${key}','type',this.value,true)"><option ${r.type==="expense"?"selected":""}>expense</option><option ${r.type==="income"?"selected":""}>income</option></select></td>
+  <td><select onchange="setF('${key}','category',this.value,true)">${Object.keys(cats).map(c=>`<option ${c===r.category?"selected":""}>${esc(c)}</option>`).join("")}${cats[r.category]?"":`<option selected>${esc(r.category)}</option>`}</select></td>
+  <td><select onchange="setF('${key}','subcategory',this.value)"><option value="">—</option>${subs.map(s=>`<option ${s===r.subcategory?"selected":""}>${esc(s)}</option>`).join("")}</select></td>
+  <td><select onchange="setF('${key}','accountId',this.value)">${data.accounts.map(a=>`<option value="${esc(a.id)}" ${a.id===r.accountId?"selected":""}>${esc(a.name)}</option>`).join("")}</select></td>
+  <td class="amt"><input inputmode="decimal" value="${esc(r.amount)}" onchange="setF('${key}','amount',this.value)"></td>
+  <td><button title="${isNew?"Remove":"Delete"}" onclick="toggleDel('${key}')">${dels.has(r.id)?"↺":"✕"}</button></td></tr>`;
+}
+function setF(key,f,v,redraw){
+  if(f==="amount")v=Number(String(v).replace(/[^0-9.]/g,""));
+  if(key.startsWith("n:")){const a=adds.find(x=>x._k===key.slice(2));a[f]=v;if(f==="type"||f==="category"){const c=catsFor(a.type);if(!c[a.category])a.category=Object.keys(c)[0]||"";a.subcategory="";}}
+  else{const id=key.slice(2),t=data.txns.find(x=>x.id===id);const e=edits[id]=edits[id]||{};e[f]=v;
+    const r=rowObj(t);if(f==="type"||f==="category"){const c=catsFor(r.type);if(!c[r.category])e.category=Object.keys(c)[0]||"";e.subcategory="";}
+    if(Object.keys(e).every(k=>String(t[k])===String(e[k])))delete edits[id];}
+  if(redraw)draw();else updateBar();
+}
+function toggleDel(key){if(key.startsWith("n:")){adds=adds.filter(a=>a._k!==key.slice(2));}else{const id=key.slice(2);dels.has(id)?dels.delete(id):dels.add(id);}draw();}
+function addRow(){const c=catsFor("expense"),first=Object.keys(c)[0]||"";adds.unshift({_k:String(++seq),id:"",date:new Date().toISOString().slice(0,10),description:"",type:"expense",category:first,subcategory:"",accountId:data.accounts[0]?.id||"",amount:""});draw();}
+function filtered(){
+  const q=$("q").value.toLowerCase(),m=$("fMonth").value,ty=$("fType").value;
+  return data.txns.filter(t=>(!m||t.date.startsWith(m))&&(!ty||t.type===ty)&&(!q||[t.description,t.category,t.subcategory,t.from,t.to].join(" ").toLowerCase().includes(q))).sort((a,b)=>b.date.localeCompare(a.date));
+}
+function draw(){
+  const list=filtered();
+  const inc=list.filter(t=>t.type==="income").reduce((s,t)=>s+t.amount,0),exp=list.filter(t=>t.type==="expense").reduce((s,t)=>s+t.amount,0);
+  $("sum").innerHTML=`<div><span class="muted">Income</span><b style="color:var(--green)">${fmt(inc)}</b></div><div><span class="muted">Expenses</span><b style="color:var(--red)">${fmt(exp)}</b></div><div><span class="muted">Net</span><b>${fmt(inc-exp)}</b></div>`;
+  $("rows").innerHTML=adds.map(a=>rowHTML(a,true)).join("")+list.slice(0,2000).map(t=>rowHTML(t,false)).join("");
+  $("count").textContent=`${list.length} transactions${list.length>2000?" (showing 2,000 — narrow the filter)":""} · amounts in each account's own currency`;
+  updateBar();
+}
+function updateBar(){const n=pending();$("saveBtn").disabled=!n;$("saveBtn").textContent=n?`Save ${n} change${n>1?"s":""}`:"Save changes";}
+async function saveChanges(){
+  const ops=[...Object.entries(edits).map(([id,fields])=>({op:"update",id,fields})),...[...dels].map(id=>({op:"delete",id})),...adds.map(a=>({op:"add",tx:{date:a.date,description:a.description,type:a.type,category:a.category,subcategory:a.subcategory,accountId:a.accountId,amount:Number(a.amount)}}))];
+  try{const r=await api("/api/apply",{ops});
+    if(!r.ok){$("msg").innerHTML=`<div class="msg err">${esc(r.error||"Not saved")}${(r.errors||[]).map(e=>"<br>• "+esc(e)).join("")}</div>`;return;}
+    $("msg").innerHTML=`<div class="msg ok">Saved ${r.applied} change${r.applied===1?"":"s"} to your phone.</div>`;
+    edits={};adds=[];dels=new Set();await reload();
+  }catch(e){$("msg").innerHTML=`<div class="msg err">${esc(e.message)}</div>`;}
+}
+function exportCsv(){
+  const rows=[["Date","Description","Type","Category","Subcategory","Account","Amount"],...filtered().map(t=>[t.date,t.description,t.type,t.category||"",t.subcategory||"",t.type==="transfer"?t.from+" -> "+t.to:(data.accounts.find(a=>a.id===t.accountId)||{}).name||"",t.amount])];
+  const csv=rows.map(r=>r.map(v=>`"${String(v).replace(/"/g,'""')}"`).join(",")).join("\n");
+  const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([csv],{type:"text/csv"}));a.download="financeflow.csv";a.click();
+}
+window.addEventListener("beforeunload",e=>{if(pending()){e.preventDefault();e.returnValue="";}});
+</script>
+</body>
+</html>

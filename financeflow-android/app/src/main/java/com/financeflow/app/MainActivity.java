@@ -14,6 +14,9 @@ import android.os.PowerManager;
 import android.provider.Settings;
 import android.text.TextUtils;
 import android.util.Base64;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
+import android.graphics.Rect;
 import android.view.HapticFeedbackConstants;
 import android.view.Window;
 import android.view.WindowManager;
@@ -37,6 +40,11 @@ import androidx.core.app.NotificationCompat;
 import androidx.core.app.NotificationManagerCompat;
 import androidx.core.content.ContextCompat;
 import androidx.core.content.FileProvider;
+
+import com.google.mlkit.vision.common.InputImage;
+import com.google.mlkit.vision.text.Text;
+import com.google.mlkit.vision.text.TextRecognition;
+import com.google.mlkit.vision.text.latin.TextRecognizerOptions;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -302,7 +310,87 @@ public class MainActivity extends AppCompatActivity {
 
     private SecureStore secureStore;
     private synchronized SecureStore secureStore(){if(secureStore==null)secureStore=new SecureStore(MainActivity.this);return secureStore;}
+    private static final java.util.regex.Pattern JS_CALLBACK = java.util.regex.Pattern.compile("^[A-Za-z_$][A-Za-z0-9_$]{0,60}$");
+
+    private void jsCallback(String cb, String json) {
+        if (cb == null || !JS_CALLBACK.matcher(cb).matches()) return;
+        runOnUiThread(() -> {
+            if (webView != null) webView.evaluateJavascript("if(typeof " + cb + "==='function')" + cb + "(" + JSONObject.quote(json) + ")", null);
+        });
+    }
+
+    private final LanServer.Host lanHost = new LanServer.Host() {
+        @Override
+        public String eval(String js, long timeoutMs) {
+            final java.util.concurrent.CountDownLatch done = new java.util.concurrent.CountDownLatch(1);
+            final String[] result = {null};
+            runOnUiThread(() -> {
+                if (webView == null || !pageLoaded) { done.countDown(); return; }
+                webView.evaluateJavascript(js, v -> { result[0] = v; done.countDown(); });
+            });
+            try { done.await(timeoutMs, java.util.concurrent.TimeUnit.MILLISECONDS); } catch (InterruptedException ignored) {}
+            return result[0];
+        }
+
+        @Override
+        public String asset(String name) {
+            try (java.io.InputStream in = getAssets().open(name)) {
+                java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+                byte[] buf = new byte[8192];
+                int n;
+                while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
+                return out.toString("UTF-8");
+            } catch (Exception e) {
+                return "<p>Desktop editor page missing.</p>";
+            }
+        }
+    };
+
+    @Override
+    protected void onDestroy() {
+        LanServer.stop();
+        super.onDestroy();
+    }
+
     private class AndroidBridge {
+        @JavascriptInterface
+        public boolean aiAvailable() { return ClaudeAssistant.AVAILABLE; }
+
+        @JavascriptInterface
+        public void aiAsk(String apiKey, String contextJson, String historyJson, String callback) {
+            Thread t = new Thread(() -> jsCallback(callback, ClaudeAssistant.ask(apiKey, contextJson, historyJson)), "ff-ai");
+            t.start();
+        }
+
+        @JavascriptInterface
+        public boolean lanAvailable() { return LanServer.AVAILABLE; }
+
+        @JavascriptInterface
+        public String lanStart() { return LanServer.start(lanHost); }
+
+        @JavascriptInterface
+        public void lanStop() { LanServer.stop(); }
+
+        @JavascriptInterface
+        public String lanStatus() { return LanServer.status(); }
+
+        // On-device text recognition (ML Kit, bundled model). Lines are regrouped into visual rows
+        // (left to right) so "Amount ..... N5,000" on a receipt stays one row for the JS parser.
+        @JavascriptInterface
+        public void ocrImage(String base64, String callback) {
+            try {
+                byte[] bytes = Base64.decode(base64, Base64.DEFAULT);
+                Bitmap bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
+                if (bmp == null) { jsCallback(callback, "{\"ok\":false,\"error\":\"Couldn't read that image\"}"); return; }
+                TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
+                    .process(InputImage.fromBitmap(bmp, 0))
+                    .addOnSuccessListener(text -> jsCallback(callback, ocrJson(text)))
+                    .addOnFailureListener(e -> jsCallback(callback, "{\"ok\":false,\"error\":" + JSONObject.quote("Text recognition failed: " + e.getMessage()) + "}"));
+            } catch (Exception e) {
+                jsCallback(callback, "{\"ok\":false,\"error\":\"Couldn't read that image\"}");
+            }
+        }
+
         @JavascriptInterface public void decodeStatement(String extension,String encoded,String password,int token){
             new Thread(()->{JSONObject result=new JSONObject();try{byte[] data=Base64.decode(encoded,Base64.DEFAULT);if(data.length>4*1024*1024)throw new IllegalArgumentException("File exceeds 4 MB");
                 result=extension.equals("xlsx")?StatementDocumentReader.xlsx(data):extension.equals("pdf")?StatementDocumentReader.pdf(MainActivity.this,data,password):new JSONObject().put("error","Use CSV, XLSX or a text-based PDF");
@@ -730,6 +818,40 @@ public class MainActivity extends AppCompatActivity {
             value -> {
                 if (!"true".equals(value)) moveTaskToBack(true);
             });
+    }
+
+    private static String ocrJson(Text text) {
+        try {
+            java.util.List<Text.Line> lines = new java.util.ArrayList<>();
+            for (Text.TextBlock b : text.getTextBlocks()) lines.addAll(b.getLines());
+            java.util.Collections.sort(lines, (a, b) -> Integer.compare(top(a), top(b)));
+            JSONArray rows = new JSONArray();
+            java.util.List<Text.Line> row = new java.util.ArrayList<>();
+            int rowMid = Integer.MIN_VALUE, rowH = 0;
+            for (Text.Line l : lines) {
+                Rect r = l.getBoundingBox();
+                int mid = r == null ? 0 : r.centerY(), h = r == null ? 20 : r.height();
+                if (!row.isEmpty() && Math.abs(mid - rowMid) > Math.max(rowH, h) * 0.6) { rows.put(joinRow(row)); row.clear(); }
+                if (row.isEmpty()) { rowMid = mid; rowH = h; }
+                row.add(l);
+            }
+            if (!row.isEmpty()) rows.put(joinRow(row));
+            return new JSONObject().put("ok", true).put("text", text.getText()).put("rows", rows).toString();
+        } catch (Exception e) {
+            return "{\"ok\":false,\"error\":\"Couldn't read the text\"}";
+        }
+    }
+
+    private static int top(Text.Line l) { Rect r = l.getBoundingBox(); return r == null ? 0 : r.centerY(); }
+
+    private static String joinRow(java.util.List<Text.Line> row) {
+        java.util.Collections.sort(row, (a, b) -> {
+            Rect ra = a.getBoundingBox(), rb = b.getBoundingBox();
+            return Integer.compare(ra == null ? 0 : ra.left, rb == null ? 0 : rb.left);
+        });
+        StringBuilder sb = new StringBuilder();
+        for (Text.Line l : row) { if (sb.length() > 0) sb.append("  "); sb.append(l.getText()); }
+        return sb.toString();
     }
 
     private static final String UX_PREFS = "ux_prefs";

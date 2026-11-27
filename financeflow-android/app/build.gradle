@@ -12,6 +12,7 @@ android {
         targetSdk 34
         versionCode (project.findProperty("ffVersionCode")?.toString()?.toInteger() ?: 53)
         versionName (project.findProperty("ffVersionName")?.toString() ?: "1.2.53")
+        multiDexEnabled true
     }
 
     // Google Play Protect hard-blocks sideloaded apps that combine "unknown developer" with a
@@ -63,14 +64,25 @@ android {
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_1_8
         targetCompatibility JavaVersion.VERSION_1_8
+        // The Anthropic SDK (full flavor) uses java.time / java.util.Optional, which need
+        // desugaring below API 26/24.
+        coreLibraryDesugaringEnabled true
+    }
+
+    packaging {
+        resources {
+            excludes += ['META-INF/DEPENDENCIES', 'META-INF/INDEX.LIST', 'META-INF/LICENSE*', 'META-INF/NOTICE*',
+                         'META-INF/versions/9/OSGI-INF/MANIFEST.MF']
+            pickFirsts += ['META-INF/*.kotlin_module']
+        }
     }
 }
 
 configurations.all {
     resolutionStrategy {
-        force 'org.jetbrains.kotlin:kotlin-stdlib:1.8.22'
-        force 'org.jetbrains.kotlin:kotlin-stdlib-jdk7:1.8.22'
-        force 'org.jetbrains.kotlin:kotlin-stdlib-jdk8:1.8.22'
+        force 'org.jetbrains.kotlin:kotlin-stdlib:1.9.0'
+        force 'org.jetbrains.kotlin:kotlin-stdlib-jdk7:1.9.0'
+        force 'org.jetbrains.kotlin:kotlin-stdlib-jdk8:1.9.0'
     }
 }
 
@@ -79,4 +91,9 @@ dependencies {
     implementation 'androidx.biometric:biometric:1.1.0'
     implementation 'androidx.core:core:1.12.0'
     implementation 'androidx.activity:activity:1.8.2'
+    // On-device text recognition for receipt / transfer-screenshot scanning (bundled model, works offline).
+    implementation 'com.google.mlkit:text-recognition:16.0.1'
+    coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.0.4'
+    // Optional bring-your-own-key AI assistant: Full build only, keeps the standard APK small.
+    fullImplementation 'com.anthropic:anthropic-java:3.3.0'
 }

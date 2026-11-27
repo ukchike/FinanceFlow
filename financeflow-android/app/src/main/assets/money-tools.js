@@ -556,6 +556,7 @@ function ffxQuickSheet(){
     <div><span class="edit-label">Account</span><button type="button" class="inp" style="text-align:left;display:flex;justify-content:space-between;align-items:center" onclick="openAccPicker('_qeAcc','qeAccLabel')"><span id="qeAccLabel" class="ellip">${esc(accName(window._qeAcc))}</span><span class="muted">›</span></button></div></div>
     <span class="edit-label mt8">Date</span><input class="inp" type="date" id="qeDate" value="${p.date}">
     ${p.reason?`<div class="fz10 accent mt8">✨ ${esc(p.reason)}</div>`:""}
+    ${p.receipt?`<details class="fz10 muted mt8"><summary>📷 Read from your receipt${p.receipt.reference?" · ref "+esc(p.receipt.reference):""} — check the details</summary><div style="white-space:pre-wrap;overflow-wrap:anywhere;margin-top:6px">${esc(p.receipt.text).slice(0,2000)}</div></details>`:""}
     <button class="btn btn-p w100 mt12" style="justify-content:center;padding:13px" onclick="saveQuickEntry()">Save</button></div></div>`;
 }
 function ffxQeType(t){
@@ -568,7 +569,7 @@ function saveQuickEntry(){
   const p=window._qe;if(!p)return;const date=$("qeDate").value;
   if(!validEntry(p.amount,date,window._qeAcc))return;
   const t={id:uid(),date,description:$("qeDesc").value.trim(),tags:[],amount:p.amount,type:window._qeT,category:window._qeCat,subcategory:window._qeSub||"",accountId:window._qeAcc,projectId:""};
-  if(p.reason===""||t.category==="Other")t.needsReview=true;txns.push(t);ffxRememberAccount(t.accountId);haptic("success");save();checkBudgetAlerts(t);showModal("close");
+  if(p.receipt){t.source="Receipt";if(p.receipt.reference)t.externalReference=p.receipt.reference;}else if(p.reason===""||t.category==="Other")t.needsReview=true;txns.push(t);ffxRememberAccount(t.accountId);haptic("success");save();checkBudgetAlerts(t);showModal("close");
   const qi=$("ffxQuickInput");if(qi)qi.value="";
   render();showUndoToast((t.type==="income"?"Added +":"Added -")+fmt(t.amount)+" · "+(t.description||t.category),()=>{const i=txns.indexOf(t);if(i>=0)txns.splice(i,1);save();});
 }
@@ -658,21 +659,21 @@ function ffxPulseHTML(){
   if(fees>0)chips.push(`<button class="ffx-pchip" onclick="openTool('fees')">🏦 ${ffxLine("fees",fmtK(fees))}</button>`);
   if(owed>0)chips.push(`<button class="ffx-pchip good" onclick="openTool('debts')">🤝 Owed to you ${fmtK(owed)}</button>`);
   const days=rw.days,tone=days===null?"":days<14?"bad":days<45?"warn":"good";
-  const head=pace?`<div class="flex-b" style="align-items:flex-start"><div style="min-width:0"><div class="ffx-eyebrow">${pace.left>=0?"Left to spend this month":"Over this month's plan"}</div>
+  const head=pace?`<div class="flex-b" style="align-items:flex-start"><div style="min-width:0"><div class="ffx-eyebrow">${pace.left>=0?T("Left to spend this month"):T("Over this month's plan")}</div>
       <div class="ffx-left ${pace.left<0?"bad":pace.ahead?"warn":"good"}">${fmt(Math.abs(pace.left))}</div>
       <div class="fz11 muted">${pace.left>0?`<b class="${pace.ahead?"warn":"green"}">${fmtK(pace.perDay)}/day</b> for ${pace.daysLeft} day${pace.daysLeft===1?"":"s"} · `:""}${pace.ahead?ffxLine("ahead"):ffxLine("onpace")}</div></div>
       <button class="ffx-pulse-btn" onclick="openTool('forecast')" aria-label="Open forecast">📈</button></div>
     ${ffxPacingSVG(pace)}<div class="flex-b fz9 muted"><span>${fmtK(pace.spent)} spent of ${fmtK(pace.limit)} ${pace.src==="budget"?"monthly budgets":"(last month's spending)"}</span><span>Runway <b class="${tone==="bad"?"red":tone==="warn"?"warn":""}">${days===null?"—":days>999?"999+":days} days</b></span></div>`
-    :`<div class="flex-b"><div><div class="ffx-eyebrow">Money runway</div><div class="ffx-runway ${tone}">${days===null?"—":days>999?"999+":days}<span> day${days===1?"":"s"}</span></div><div class="fz10 muted">${days===null?"Record some spending to see how long your money lasts":"Your balance at your usual "+fmtK(rw.avg)+"/day spending"}</div></div>
+    :`<div class="flex-b"><div><div class="ffx-eyebrow">${T("Money runway")}</div><div class="ffx-runway ${tone}">${days===null?"—":days>999?"999+":days}<span> day${days===1?"":"s"}</span></div><div class="fz10 muted">${days===null?"Record some spending to see how long your money lasts":"Your balance at your usual "+fmtK(rw.avg)+"/day spending"}</div></div>
     <button class="ffx-pulse-btn" onclick="openTool('forecast')" aria-label="Open forecast">📈</button></div>`;
   const ring=ffxTopCategories(8);
   return`<div class="card ffx-pulse">${head}
-    <div class="ffx-eyebrow mt12">Log in one tap</div>
+    <div class="ffx-eyebrow mt12">${T("Log in one tap")}</div>
     <div class="ffx-ring">${ring.map(([c,s])=>`<button onclick="ffxQuickCat('${escJs(c)}','${escJs(s)}')" aria-label="Add ${esc(s||c)} expense"><span style="background:${clr(c)}22;color:${clr(c)};border-color:${clr(c)}55">${catIcon(c)}</span><em>${esc(s||c)}</em></button>`).join("")}</div>
-    <div class="ffx-qe"><span>⚡</span><input id="ffxQuickInput" placeholder="Or type: “5k fuel cash”, “+250k salary gtbank”" enterkeyhint="done" onkeydown="ffxQuickKey(event)"><button onclick="openQuickEntry($('ffxQuickInput').value)" aria-label="Quick add">Add</button></div>
+    <div class="ffx-qe"><span>⚡</span><input id="ffxQuickInput" placeholder="${esc(T("Or type: “5k fuel cash”, “+250k salary gtbank”"))}" enterkeyhint="done" onkeydown="ffxQuickKey(event)"><button class="ffx-qe-cam" onclick="startReceiptScan()" aria-label="Scan a receipt">📷</button><button onclick="openQuickEntry($('ffxQuickInput').value)" aria-label="Quick add">Add</button></div>
     ${chips.length?`<div class="ffx-pchips">${chips.join("")}</div>`:""}
     <div class="ffx-mini-grid">${FFX_TOOLS.slice(0,8).map(t=>`<button onclick="openTool('${t.id}')"><span>${t.icon}</span>${t.label}${t.id==="review"&&rev?`<i class="ffx-dot">${rev}</i>`:""}</button>`).join("")}</div>
-    <button class="btn btn-g btn-sm w100 mt8" style="justify-content:center" onclick="openTool('hub')">All money tools ›</button>
+    <button class="btn btn-g btn-sm w100 mt8" style="justify-content:center" onclick="openTool('hub')">${T("All money tools ›")}</button>
   </div>`;
 }
 
@@ -714,6 +715,8 @@ function uxLoad(){
   try{privacyMode=appStorage.getItem("ffd_privacy")==="1";}catch(e){}
   try{uxPrefs=Object.assign({haptics:true,secureRecents:true},JSON.parse(appStorage.getItem("ffd_uxprefs")||"{}"));}catch(e){}
   try{const la=appStorage.getItem("ffd_lastacc");if(la)window._ffxLastAcc=la;}catch(e){}
+  if(document.body)document.body.classList.toggle("lite",!!uxPrefs.lite);if(uxPrefs.lite)txRenderLimit=80;
+  if(uxPrefs.lang&&uxPrefs.lang!=="en")document.documentElement.lang=uxPrefs.lang==="pcm"?"en-NG":uxPrefs.lang;
   try{if(window.Android&&window.Android.setSecureRecents)window.Android.setSecureRecents(!!uxPrefs.secureRecents);}catch(e){}
 }
 function uxSavePrefs(){appStorage.setItem("ffd_uxprefs",JSON.stringify(uxPrefs));}
@@ -785,7 +788,7 @@ function ffxEnhanceAddSheet(){
   if(!window._bankAlertId&&window._ffxLastAcc&&accounts.some(a=>a.id===window._ffxLastAcc)){window._txAcc=window._ffxLastAcc;const l=$("txAccLabel");if(l)l.textContent=accName(window._txAcc);}
   const body=document.querySelector(".entry-modal .entry-body");if(!body||$("tplRow"))return;
   const row=document.createElement("div");row.id="tplRow";row.className="ffx-tpl-row";
-  row.innerHTML=(ffx.templates||[]).map(t=>`<button type="button" class="ffx-tpl" onclick="applyTemplate('${escJs(t.id)}')" oncontextmenu="event.preventDefault();deleteTemplate('${escJs(t.id)}')">${catIcon(t.category)} ${esc(t.name)}${t.amount?` <b>${fmtK(t.amount)}</b>`:""}</button>`).join("")+`<button type="button" class="ffx-tpl add" onclick="saveTemplateFromForm()">☆ Save as favourite</button>`;
+  row.innerHTML=`<button type="button" class="ffx-tpl add" onclick="showModal('close');startReceiptScan()">📷 Scan receipt</button>`+(ffx.templates||[]).map(t=>`<button type="button" class="ffx-tpl" onclick="applyTemplate('${escJs(t.id)}')" oncontextmenu="event.preventDefault();deleteTemplate('${escJs(t.id)}')">${catIcon(t.category)} ${esc(t.name)}${t.amount?` <b>${fmtK(t.amount)}</b>`:""}</button>`).join("")+`<button type="button" class="ffx-tpl add" onclick="saveTemplateFromForm()">☆ Save as favourite</button>`;
   body.parentElement.insertBefore(row,body);
 }
 function applyTemplate(id){
@@ -986,3 +989,317 @@ function ffxStoryOpen(){return ffxStorySlides.length>0;}
 let txRenderLimit=150;
 function ffxLimitDates(dates,groups){let n=0;const out=[];for(const d of dates){out.push(d);n+=groups[d].length;if(n>=txRenderLimit)break;}window._txShown=n;return out;}
 function ffxMoreBtn(dates,groups){const total=dates.reduce((s,d)=>s+groups[d].length,0),left=total-(window._txShown||0);return left>0?`<button class="btn btn-g w100 ffx-more" onclick="txRenderLimit+=200;render()">Show ${Math.min(left,200)} more · ${left} older</button>`:"";}
+
+// ════════════════ Long-term features: Wi-Fi editor, receipt scanning, AI assistant,
+// zero-based budgeting, local languages + lite mode, family ledger ════════════════
+const ffxHasBridge=n=>!!(window.Android&&typeof window.Android[n]==="function");
+
+// ── Wi-Fi desktop editor (Full build) ──
+function lanSnapshot(){
+  if(pinLockActive)return JSON.stringify({ok:false,error:"FinanceFlow is locked on the phone. Unlock it first."});
+  return JSON.stringify({ok:true,currency:currency.code,symbol:currency.symbol,
+    accounts:accounts.map(a=>({id:a.id,name:a.name,currency:a.currency||currency.code})),
+    categories:{expense:getEC(),income:getIC()},
+    txns:txns.map(t=>t.type==="transfer"?{id:t.id,date:t.date,type:"transfer",amount:Number(t.amount),description:t.description||"",from:accName(t.fromAccountId),to:accName(t.toAccountId)}
+      :{id:t.id,date:t.date,type:t.type,amount:Number(t.amount),description:t.description||"",category:t.category||"",subcategory:t.subcategory||"",accountId:t.accountId})});
+}
+function ffxValidTx(t){
+  const errs=[],cats=t.type==="income"?getIC():getEC();
+  if(!["income","expense"].includes(t.type))errs.push("type must be income or expense");
+  if(!(Number(t.amount)>0)||!Number.isFinite(Number(t.amount)))errs.push("amount must be a positive number");
+  if(!FinanceCore.date(t.date))errs.push("invalid date "+t.date);
+  if(!accounts.some(a=>a.id===t.accountId))errs.push("unknown account");
+  if(!Object.hasOwn(cats,t.category))errs.push("unknown category "+t.category);
+  else if(t.subcategory&&!(cats[t.category]||[]).includes(t.subcategory))errs.push("unknown subcategory "+t.subcategory);
+  return errs;
+}
+function lanApply(bodyStr){
+  if(pinLockActive)return JSON.stringify({ok:false,error:"FinanceFlow is locked on the phone. Unlock it first."});
+  let ops;try{ops=JSON.parse(bodyStr).ops;}catch(e){return JSON.stringify({ok:false,error:"Bad request"});}
+  if(!Array.isArray(ops)||ops.length>5000)return JSON.stringify({ok:false,error:"Bad request"});
+  const FIELDS=["date","description","type","category","subcategory","accountId","amount"],errors=[],plan=[];
+  ops.forEach((o,i)=>{
+    if(o.op==="delete"){const t=txns.find(x=>x.id===o.id);if(!t||t.type==="transfer")errors.push(`#${i+1}: can't delete that entry`);else plan.push({o,t});return;}
+    let next;
+    if(o.op==="update"){const t=txns.find(x=>x.id===o.id);if(!t||t.type==="transfer"){errors.push(`#${i+1}: entry not found or is a transfer`);return;}next={...t};FIELDS.forEach(f=>{if(o.fields&&Object.hasOwn(o.fields,f))next[f]=f==="amount"?Number(o.fields[f]):String(o.fields[f]??"");});plan.push({o,t,next});}
+    else if(o.op==="add"){next={id:uid(),tags:[],projectId:"",source:"Desktop"};FIELDS.forEach(f=>{next[f]=f==="amount"?Number(o.tx&&o.tx[f]):String((o.tx&&o.tx[f])??"");});plan.push({o,next});}
+    else{errors.push(`#${i+1}: unknown operation`);return;}
+    ffxValidTx(next).forEach(e=>errors.push(`${next.description||next.date||"#"+(i+1)}: ${e}`));
+  });
+  if(errors.length)return JSON.stringify({ok:false,error:"Nothing was saved — fix these first:",errors:errors.slice(0,20)});
+  const before=JSON.parse(JSON.stringify(txns));
+  plan.forEach(p=>{
+    if(p.o.op==="delete"){ffxNoteDelete(p.t);txns.splice(txns.indexOf(p.t),1);}
+    else if(p.o.op==="update"){Object.assign(p.t,p.next);delete p.t.needsReview;}
+    else txns.push(p.next);
+  });
+  save();render();haptic("success");
+  showUndoToast("💻 "+plan.length+" change"+(plan.length===1?"":"s")+" from your computer",()=>{txns=before;save();});
+  return JSON.stringify({ok:true,applied:plan.length});
+}
+function lanToggle(on){
+  if(!ffxHasBridge("lanStart"))return;
+  if(on){const s=JSON.parse(window.Android.lanStart());if(s.error)showToast(s.error,"red");}
+  else window.Android.lanStop();
+  haptic("light");ffxRender();
+}
+function ffxLanHTML(){
+  if(!ffxHasBridge("lanAvailable")||!window.Android.lanAvailable())return`<div class="empty-state"><div class="empty-ic">💻</div><div class="fz13 fw7">Available in the Full build</div><div class="fz11 muted mt4">The Wi-Fi editor needs network access, which the standard build never asks for. Install FinanceFlow-Full.apk from the same release to use it.</div></div>`;
+  let s={running:false};try{s=JSON.parse(window.Android.lanStatus());}catch(e){}
+  if(!s.running)return`<div class="ffx-hero"><div class="fz11 muted">Edit on a big screen</div><div class="ffx-hero-num" style="font-size:22px">Wi-Fi desktop editor</div><div class="fz11 muted">Open your records in a laptop browser on the same Wi-Fi to bulk-edit, recategorize, add and export. Your phone stays the master copy and nothing goes to the internet.</div></div>
+    <button class="btn btn-p w100" style="justify-content:center;padding:13px" onclick="lanToggle(true)">Start Wi-Fi editor</button>
+    <div class="fz10 muted mt10">It stops by itself after 30 minutes without use, or when you close the app. Only devices that know the 6-digit PIN can connect.</div>`;
+  return`<div class="ffx-hero"><div class="fz11 muted">On your computer, open</div><div class="ffx-lan-url">${s.url?esc(s.url):"Connect the phone to Wi-Fi"}</div><div class="fz11 muted mt8">then enter this PIN</div><div class="ffx-lan-pin">${esc(s.pin||"")}</div></div>
+    ${s.wifi?"":`<div class="msg msg-err fz11 mb12" style="display:block">This phone doesn't seem to be on Wi-Fi. Connect it to the same network as your computer (a phone hotspot also works).</div>`}
+    <div class="flex g6"><button class="btn btn-g" style="flex:1;justify-content:center" onclick="ffxRender()">Refresh</button><button class="btn btn-rd" style="flex:1;justify-content:center" onclick="lanToggle(false)">Stop</button></div>
+    <div class="fz10 muted mt10">Keep FinanceFlow open while you edit. Changes from the computer show up here instantly and can be undone.</div>`;
+}
+
+// ── receipt & transfer-screenshot scanning (ML Kit on device) ──
+const FFX_MONTHS={jan:0,feb:1,mar:2,apr:3,may:4,jun:5,jul:6,aug:7,sep:8,sept:8,oct:9,nov:10,dec:11};
+function ffxParseMoney(s){const m=String(s).replace(/\s/g,"").match(/^(?:₦|NGN|N)?(\d{1,3}(?:,\d{3})+|\d+)(\.\d{1,2})?$/i);return m?parseFloat(m[1].replace(/,/g,"")+(m[2]||"")):null;}
+function ffxGuessCategory(type,desc){
+  const cats=type==="income"?getIC():getEC();
+  const sug=ffxSuggestCat(type,desc);if(sug&&Object.hasOwn(cats,sug.category))return[sug.category,sug.subcategory,sug.reason];
+  for(const [re,c,sub] of (type==="income"?FFX_INCOME_KEYWORDS:FFX_KEYWORDS))if(re.test(" "+String(desc).toLowerCase()+" ")&&Object.hasOwn(cats,c))return[c,(cats[c]||[]).includes(sub)?sub:"","Matched “"+desc+"”"];
+  const c=Object.hasOwn(cats,"Other")?"Other":Object.keys(cats)[0];return[c,(cats[c]||[])[0]||"",""];
+}
+function parseReceiptText(rows){
+  rows=(rows||[]).map(r=>String(r).trim()).filter(Boolean);
+  const text=rows.join("\n"),low=text.toLowerCase();
+  // amount: score every money-looking token by its row's label
+  let best=null;
+  rows.forEach((row,i)=>{
+    const tokens=row.match(/(?:₦|NGN|N)?\s?\d{1,3}(?:,\d{3})+(?:\.\d{1,2})?|(?:₦|NGN)\s?\d+(?:\.\d{1,2})?|\b\d+\.\d{2}\b/gi)||[];
+    tokens.forEach(tok=>{
+      const v=ffxParseMoney(tok);if(v===null||v<=0||v>1e10)return;
+      const r=row.toLowerCase(),prev=(rows[i-1]||"").toLowerCase();let sc=0;
+      if(/\b(amount|total|amt|grand total|paid|you sent|you paid|transfer amount|debit amount|credit amount)\b/.test(r))sc+=4;
+      else if(/\b(amount|total)\b/.test(prev))sc+=3;
+      if(/₦|ngn/i.test(tok))sc+=2;if(/\.\d{2}$/.test(tok))sc+=1;
+      if(/\b(balance|bal|avail)/.test(r))sc-=6;if(/\b(fee|charge|vat|stamp|commission|cashback|change)\b/.test(r))sc-=3;
+      if(/\b(phone|tel|acct|account no|terminal|tid|mid|stan|rrn)\b/.test(r))sc-=4;
+      if(!best||sc>best.sc||(sc===best.sc&&v>best.v))best={v,sc,row};
+    });
+  });
+  // date (Nigerian receipts are day-first)
+  let date=null;const now=new Date();
+  const mk=(y,m,d)=>{if(y<100)y+=2000;const dt=new Date(y,m,d);return dt.getMonth()===m&&dt.getDate()===d&&dt<=new Date(now.getTime()+864e5)&&y>2015?toLocalISODate(dt):null;};
+  for(const row of rows){
+    let m;
+    if((m=row.match(/\b(\d{4})-(\d{2})-(\d{2})\b/))){date=mk(+m[1],+m[2]-1,+m[3]);}
+    else if((m=row.match(/\b(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{2,4})\b/))){date=mk(+m[3],+m[2]-1,+m[1]);}
+    else if((m=row.match(/\b(\d{1,2})(?:st|nd|rd|th)?[\s\-]+([A-Za-z]{3,9})[,\s\-]+(\d{4})\b/))&&FFX_MONTHS[m[2].slice(0,3).toLowerCase()]!==undefined){date=mk(+m[3],FFX_MONTHS[m[2].slice(0,3).toLowerCase()],+m[1]);}
+    else if((m=row.match(/\b([A-Za-z]{3,9})\s+(\d{1,2})(?:st|nd|rd|th)?,?\s+(\d{4})\b/))&&FFX_MONTHS[m[1].slice(0,3).toLowerCase()]!==undefined){date=mk(+m[3],FFX_MONTHS[m[1].slice(0,3).toLowerCase()],+m[2]);}
+    if(date)break;
+  }
+  const income=/\b(credit alert|you received|received from|incoming|deposit|credited)\b/.test(low)&&!/\b(debit|you sent|transfer successful|paid to|purchase|sent to)\b/.test(low);
+  // counterparty / merchant
+  let name="";
+  const labelRe=income?/\b(sender|from|received from)(?:\s+(?:details|name|account name))?\b\s*[:\-]?\s*(.*)$/i:/\b(beneficiary|recipient|receiver|sent to|paid to|to|merchant|biller)(?:\s+(?:details|name|account name))?\b\s*[:\-]?\s*(.*)$/i;
+  for(let i=0;i<rows.length&&!name;i++){const m=rows[i].match(labelRe);if(m){const rest=m[2].replace(/\d{6,}/g,"").trim();name=rest&&/[a-z]/i.test(rest)?rest:(rows[i+1]&&/[a-z]/i.test(rows[i+1])&&!/\d{3,}/.test(rows[i+1])?rows[i+1]:"");}}
+  if(!name){const first=rows.find(r=>/[a-z]{3}/i.test(r)&&!/\d{4,}|receipt|transaction|successful|details|customer copy|merchant copy/i.test(r));name=first||"";}
+  name=name.replace(/\s{2,}.*/,"").replace(/[|*]/g,"").trim().slice(0,60);
+  const ref=(text.match(/\b(?:ref(?:erence)?(?:\s*no)?|session\s*id|transaction\s*(?:id|ref|no)|rrn)\b\s*[:#\-]?\s*([A-Z0-9\-]{6,})/i)||[])[1]||"";
+  // only the receipt's own header names the paying app/bank; later rows often name the recipient's bank
+  const head=rows.slice(0,2).join(" ").toLowerCase();
+  const bankHit=accounts.find(a=>{const k=a.name.toLowerCase().split(/\s+/)[0];return k.length>=3&&head.includes(k);});
+  return{amount:best?best.v:null,date,type:income?"income":"expense",name,reference:ref,accountId:bankHit?bankHit.id:null,text};
+}
+function startReceiptScan(){
+  if(!ffxHasBridge("ocrImage"))return showToast("📷 Scanning works in the FinanceFlow app","warn");
+  let inp=$("ffxScanInput");
+  if(!inp){inp=document.createElement("input");inp.type="file";inp.accept="image/*";inp.id="ffxScanInput";inp.style.display="none";inp.onchange=()=>ffxScanFile(inp.files[0]);document.body.appendChild(inp);}
+  inp.value="";inp.click();
+}
+function ffxScanFile(file){
+  if(!file)return;showToast("🔍 Reading the receipt…","green");
+  const r=new FileReader();r.onload=()=>{const img=new Image();img.onload=()=>{
+    const max=1800,sc=Math.min(1,max/Math.max(img.width,img.height)),c=document.createElement("canvas");c.width=Math.round(img.width*sc);c.height=Math.round(img.height*sc);
+    c.getContext("2d").drawImage(img,0,0,c.width,c.height);window.Android.ocrImage(c.toDataURL("image/jpeg",0.9).split(",")[1],"ffxOcrDone");};img.src=r.result;};r.readAsDataURL(file);
+}
+function ffxOcrDone(json){
+  let res;try{res=JSON.parse(json);}catch(e){res={ok:false};}
+  if(!res.ok)return showToast("⚠️ "+(res.error||"Couldn't read that image"),"red");
+  const p=parseReceiptText(res.rows&&res.rows.length?res.rows:String(res.text||"").split("\n"));
+  if(!p.amount)return showToast("Couldn't find an amount — try a clearer photo or screenshot","warn");
+  if(p.reference&&txns.some(t=>t.externalReference===p.reference)&&!confirm("A transaction with reference "+p.reference+" is already recorded. Add it again?"))return;
+  const [category,subcategory,reason]=ffxGuessCategory(p.type,p.name);
+  window._qe={amount:p.amount,type:p.type,date:p.date||ffxToday(),accountId:p.accountId||window._ffxLastAcc||accounts[0]?.id,description:p.name,category,subcategory,reason:reason||"From your receipt",receipt:{reference:p.reference,text:p.text}};
+  window._qeT=p.type;window._qeCat=category;window._qeSub=subcategory;window._qeAcc=window._qe.accountId;
+  haptic("success");ffxQuickSheet();
+}
+
+// ── AI assistant (Full build, user's own Claude API key) ──
+ffxState.aiChat=ffxState.aiChat||[];
+function ffxAiKey(){try{return appStorage.getItem("ffd_aikey")||"";}catch(e){return"";}}
+function aiSaveKey(){const k=($("aiKey")?.value||"").trim();if(!/^sk-ant-/.test(k))return alert("That doesn't look like a Claude API key (it starts with sk-ant-).");appStorage.setItem("ffd_aikey",k);haptic("success");showToast("🔑 Key saved on this phone (encrypted)","green");ffxRender();}
+function aiForgetKey(){if(!confirm("Remove your API key from this phone?"))return;appStorage.removeItem("ffd_aikey");ffxState.aiChat=[];ffxRender();}
+function ffxAiContext(){
+  const from=ffxAddDays(ffxToday(),-365);
+  const list=txns.filter(t=>t.date>=from).sort((a,b)=>b.date.localeCompare(a.date)).slice(0,1500);
+  return JSON.stringify({today:ffxToday(),currency:currency.code,
+    accounts:accounts.map(a=>({id:a.id,name:a.name,currency:a.currency||currency.code,balance:getAccountBalance(a.id)})),
+    categories:{expense:getEC(),income:getIC()},
+    budgets:budgets.map(b=>({category:b.cat,limit:budgetBaseLimit(b),period:b.period||"month"})),
+    goals:goals.map(g=>({name:g.name,target:g.target,saved:g.saved})),
+    transaction_columns:["id","date","type","amount","category","subcategory","account","description"],
+    transactions:list.map(t=>t.type==="transfer"?[t.id,t.date,"transfer",Number(t.amount),"","",accName(t.fromAccountId)+" -> "+accName(t.toAccountId),t.description||""]:[t.id,t.date,t.type,Number(t.amount),t.category,t.subcategory||"",accName(t.accountId),t.description||""])});
+}
+function aiSend(text){
+  const q=String(text??$("aiInput")?.value??"").trim();if(!q||ffxState.aiBusy)return;
+  const key=ffxAiKey();if(!key)return;
+  ffxState.aiChat.push({role:"user",text:q});ffxState.aiBusy=true;ffxRender();
+  const history=ffxState.aiChat.slice(-12).map(m=>({role:m.role,text:m.text}));
+  window.Android.aiAsk(key,ffxAiContext(),JSON.stringify(history),"ffxAiReply");
+}
+function ffxAiReply(json){
+  ffxState.aiBusy=false;let r;try{r=JSON.parse(json);}catch(e){r={ok:false,error:"Unexpected reply"};}
+  if(r.ok){
+    const props=(r.proposals||[]).filter(p=>{const t=txns.find(x=>x.id===p.tx_id);if(!t||t.type==="transfer")return false;const cats=t.type==="income"?getIC():getEC();return Object.hasOwn(cats,p.category)&&(!p.subcategory||(cats[p.category]||[]).includes(p.subcategory))&&!(t.category===p.category&&(t.subcategory||"")===(p.subcategory||""));});
+    ffxState.aiChat.push({role:"assistant",text:r.answer||"(no answer)",proposals:props});haptic("light");
+  }else ffxState.aiChat.push({role:"error",text:r.error||"Something went wrong"});
+  if(ffxView==="assistant")ffxRender();else showToast("🤖 Your assistant replied","green");
+}
+function aiApply(msgIdx,pIdx){
+  const m=ffxState.aiChat[msgIdx];if(!m)return;const list=pIdx===undefined?m.proposals:[m.proposals[pIdx]];
+  const before=[];list.forEach(p=>{const t=txns.find(x=>x.id===p.tx_id);if(!t)return;before.push([t,t.category,t.subcategory]);t.category=p.category;t.subcategory=p.subcategory||"";delete t.needsReview;p.applied=true;});
+  save();render();ffxRender();haptic("success");
+  showUndoToast("🏷 "+before.length+" recategorized",()=>{before.forEach(([t,c,s])=>{t.category=c;t.subcategory=s;});list.forEach(p=>p.applied=false);save();});
+}
+function ffxAssistantHTML(){
+  if(!ffxHasBridge("aiAvailable")||!window.Android.aiAvailable())return`<div class="empty-state"><div class="empty-ic">🤖</div><div class="fz13 fw7">Available in the Full build</div><div class="fz11 muted mt4">The AI assistant needs internet access, which the standard build never asks for. Install FinanceFlow-Full.apk from the same release to use it.</div></div>`;
+  if(!ffxAiKey())return`<div class="ffx-hero"><div class="fz11 muted">Optional · uses your own Claude API key</div><div class="ffx-hero-num" style="font-size:22px">Ask about your money</div><div class="fz11 muted">“How much did I spend on transport since January?” · “Which subscriptions cost the most?” · “Fix my miscategorized transactions.”</div></div>
+    <div class="msg msg-err fz11 mb12" style="display:block"><b>What gets sent:</b> each question, plus your last 12 months of transactions (date, amount, category, account name, description), account balances, budgets and goals, goes to Anthropic's Claude API using your key. Nothing else in FinanceFlow uses the internet, and nothing is sent until you ask a question.</div>
+    <span class="edit-label">Claude API key</span><input class="inp mb8" id="aiKey" type="password" autocomplete="off" placeholder="sk-ant-…">
+    <button class="btn btn-p w100" style="justify-content:center" onclick="aiSaveKey()">Save key & start</button>
+    <div class="fz10 muted mt8">Get a key at console.anthropic.com. Usage is billed to your Anthropic account. The key is stored encrypted on this phone and is never included in backups.</div>`;
+  const sugg=["How much did I spend this month, by category?","Which subscriptions or repeat bills cost me the most?","Find transactions that look miscategorized","How can I cut my spending next month?"];
+  const msgs=ffxState.aiChat.map((m,i)=>m.role==="user"?`<div class="ffx-ai-me">${esc(m.text)}</div>`:m.role==="error"?`<div class="ffx-ai-err">⚠️ ${esc(m.text)}</div>`:
+    `<div class="ffx-ai-bot">${esc(m.text).replace(/\n/g,"<br>")}${(m.proposals||[]).length?`<div class="ffx-ai-props">${m.proposals.map((p,j)=>{const t=txns.find(x=>x.id===p.tx_id);return`<div class="ffx-ai-prop"><div style="min-width:0"><div class="fz11 fw7 ellip">${esc(t?.description||t?.category||p.tx_id)} · ${t?fmtTxn(t):""}</div><div class="fz10 muted">${esc(t?t.category:"")} → <b>${esc(p.category)}${p.subcategory?" / "+esc(p.subcategory):""}</b> · ${esc(p.reason)}</div></div>${p.applied?`<span class="fz10 green fw7">✓</span>`:`<button class="btn btn-sm btn-g" onclick="aiApply(${i},${j})">Apply</button>`}</div>`;}).join("")}${m.proposals.some(p=>!p.applied)?`<button class="btn btn-p btn-sm mt8" onclick="aiApply(${i})">Apply all ${m.proposals.filter(p=>!p.applied).length}</button>`:""}</div>`:""}</div>`).join("");
+  return`<div class="ffx-ai">${msgs||`<div class="fz11 muted mb8">Try one of these:</div>`}
+    ${ffxState.aiBusy?`<div class="ffx-ai-bot ffx-ai-typing"><span></span><span></span><span></span></div>`:""}
+    ${!ffxState.aiChat.length?`<div class="ffx-sugs">${sugg.map(s=>`<button class="ffx-sug" onclick="aiSend('${escJs(s)}')">${esc(s)}</button>`).join("")}</div>`:""}</div>
+    <div class="ffx-qe mt12"><span>🤖</span><input id="aiInput" placeholder="Ask about your money…" enterkeyhint="send" onkeydown="if(event.key==='Enter'){event.preventDefault();aiSend()}" ${ffxState.aiBusy?"disabled":""}><button onclick="aiSend()" ${ffxState.aiBusy?"disabled":""}>Ask</button></div>
+    <div class="fz10 muted mt8">Model: Claude Opus 5.5 · suggested changes need your OK</div><div class="flex g6 mt6"><button class="btn btn-sm btn-g" onclick="ffxState.aiChat=[];ffxRender()">Clear chat</button><button class="btn btn-sm btn-g" onclick="aiForgetKey()">Remove key</button></div>`;
+}
+
+// ── zero-based "give every naira a job" budgeting (YNAB) ──
+function ffxZeroBased(){
+  const r=ffxMonthRange(0),now=new Date();
+  const income=txns.filter(t=>t.type==="income"&&t.date>=r.start&&t.date<=r.end).reduce((s,t)=>s+ffxPA(t),0);
+  const monthly=budgets.filter(b=>(b.period||"month")==="month");
+  const weekly=budgets.filter(b=>b.period==="week");
+  const assigned=monthly.reduce((s,b)=>s+budgetEffLimit(b,"month",now),0)+weekly.reduce((s,b)=>s+budgetBaseLimit(b)*52/12,0);
+  return{income,assigned,ready:income-assigned,label:r.label};
+}
+function setZeroBased(on){uxPrefs.zeroBased=on;uxSavePrefs();haptic("light");render();}
+function zbAssignRest(){
+  const z=ffxZeroBased();if(z.ready<=0)return;
+  const cat=Object.hasOwn(getEC(),"Savings")?"Savings":null;if(!cat)return alert("Add a Savings category first.");
+  let b=budgets.find(x=>x.cat===cat&&(x.period||"month")==="month");
+  if(!confirm(`Assign the remaining ${fmt(z.ready)} to your Savings budget?`))return;
+  if(b)b.limit=FinanceCore.round(Number(b.limit||0)+z.ready);else budgets.push({id:uid(),cat,limit:FinanceCore.round(z.ready),period:"month",subs:[]});
+  save();render();haptic("success");showToast("💰 Every naira has a job","green");
+}
+function zbFromLastMonth(){
+  const p=ffxMonthRange(-1),EC=getEC(),spent={};
+  txns.filter(t=>t.type==="expense"&&t.date>=p.start&&t.date<=p.end&&Object.hasOwn(EC,t.category)).forEach(t=>spent[t.category]=(spent[t.category]||0)+ffxPA(t));
+  const missing=Object.entries(spent).filter(([c])=>!budgets.some(b=>b.cat===c));
+  if(!missing.length)return showToast("Every category you spent in last month already has a budget","warn");
+  if(!confirm(`Create ${missing.length} budget${missing.length>1?"s":""} from last month's spending?\n\n`+missing.map(([c,v])=>`${c}: ${fmt(Math.ceil(v/1000)*1000)}`).join("\n")))return;
+  missing.forEach(([c,v])=>budgets.push({id:uid(),cat:c,limit:Math.ceil(v/1000)*1000,period:"month",subs:[]}));save();render();haptic("success");
+}
+function ffxZeroBasedHTML(){
+  if(!uxPrefs.zeroBased)return`<button class="ffx-zb-off" onclick="setZeroBased(true)">🎯 Try “give every naira a job” budgeting</button>`;
+  const z=ffxZeroBased(),st=Math.abs(z.ready)<1?"done":z.ready>0?"ready":"over";
+  const pct=z.income>0?Math.min(100,z.assigned/z.income*100):0;
+  return`<div class="card ffx-zb ${st}"><div class="flex-b"><div class="ffx-eyebrow">Give every naira a job · ${esc(z.label)}</div><button class="btn btn-sm btn-g" onclick="setZeroBased(false)">Turn off</button></div>
+    <div class="ffx-zb-num">${st==="done"?"✓ Every naira has a job":st==="ready"?fmt(z.ready)+" <span>ready to assign</span>":fmt(-z.ready)+" <span>over-assigned</span>"}</div>
+    <div class="bar-track mt8"><div class="bar-fill" style="width:${pct}%;background:${st==="over"?"var(--red)":"var(--accent)"}"></div></div>
+    <div class="flex-b fz10 muted mt4"><span>Income received ${fmtK(z.income)}</span><span>Assigned to budgets ${fmtK(z.assigned)}</span></div>
+    <div class="fz11 muted mt8">${st==="over"?"Your budgets add up to more than you've received this month. Lower one, or wait for more income.":st==="ready"?"Give this money a job: raise a budget, add one, or send it to savings.":"Everything you received this month is planned. Nice."}</div>
+    ${st==="ready"?`<div class="flex g6 mt10"><button class="btn btn-p btn-sm" onclick="zbAssignRest()">Assign rest to Savings</button><button class="btn btn-g btn-sm" onclick="zbFromLastMonth()">Budgets from last month</button></div>`:""}</div>`;
+}
+
+// ── local languages (beta) + lite mode ──
+const FFX_LANGS={en:"English",pcm:"Pidgin",yo:"Yorùbá",ha:"Hausa",ig:"Igbo"};
+const FFX_I18N={
+  Home:{pcm:"Home",yo:"Ilé",ha:"Gida",ig:"Ụlọ"},Stats:{pcm:"Numba",yo:"Ìṣirò",ha:"Ƙididdiga",ig:"Ọnụ ọgụgụ"},History:{pcm:"History",yo:"Ìtàn",ha:"Tarihi",ig:"Akụkọ"},
+  Budgets:{pcm:"Budget",yo:"Ìnáwó",ha:"Kasafi",ig:"Mmefu"},Projects:{pcm:"Project",yo:"Iṣẹ́",ha:"Ayyuka",ig:"Ọrụ"},Settings:{pcm:"Settings",yo:"Ètò",ha:"Saituna",ig:"Ntọala"},
+  Hi:{pcm:"How far",yo:"Ẹ n lẹ",ha:"Sannu",ig:"Ndeewo"},
+  "+ Add transaction":{pcm:"+ Add am",yo:"+ Ṣàfikún",ha:"+ Ƙara ciniki",ig:"+ Tinye"},
+  "Import statement":{pcm:"Bring statement",yo:"Gbé àkọsílẹ̀ wọlé",ha:"Shigo da bayanai",ig:"Bubata akwụkwọ"},
+  "Left to spend this month":{pcm:"Money wey remain this month",yo:"Owó tó kù lóṣù yìí",ha:"Kuɗin da ya rage a wannan wata",ig:"Ego fọdụrụ n'ọnwa a"},
+  "Over this month's plan":{pcm:"You don pass this month plan",yo:"O ti kọjá ètò oṣù yìí",ha:"Ka wuce shirin wannan wata",ig:"Ị gafeela atụmatụ ọnwa a"},
+  "Log in one tap":{pcm:"Add am sharp sharp",yo:"Kọ sílẹ̀ ní ìfọwọ́kàn kan",ha:"Rubuta da taɓawa ɗaya",ig:"Dee ya n'otu mmetụ"},
+  "All money tools ›":{pcm:"All di money tools ›",yo:"Gbogbo irinṣẹ́ owó ›",ha:"Duk kayan aikin kuɗi ›",ig:"Ngwaọrụ ego niile ›"},
+  "Money runway":{pcm:"How long money go last",yo:"Bí owó ṣe máa pẹ́ tó",ha:"Tsawon kuɗi",ig:"Ogologo oge ego"},
+  "Add Transaction":{pcm:"Add money matter",yo:"Ṣàfikún ìṣòwò",ha:"Ƙara ciniki",ig:"Tinye azụmahịa"},
+  Notifications:{pcm:"Notification dem",yo:"Ìfitónilétí",ha:"Sanarwa",ig:"Ọkwa"},
+  "Or type: “5k fuel cash”, “+250k salary gtbank”":{pcm:"Type am: “5k fuel cash”",yo:"Tẹ̀: “5k fuel cash”",ha:"Rubuta: “5k fuel cash”",ig:"Dee: “5k fuel cash”"}
+};
+function T(s){const l=uxPrefs.lang||"en";if(l==="en")return s;const e=FFX_I18N[s];return(e&&e[l])||s;}
+function setLang(l){uxPrefs.lang=FFX_LANGS[l]?l:"en";uxSavePrefs();document.documentElement.lang=uxPrefs.lang==="pcm"?"en-NG":uxPrefs.lang;render();if(settingsOpen)renderSettings();}
+function setLite(on){uxPrefs.lite=on;uxSavePrefs();document.body.classList.toggle("lite",on);txRenderLimit=on?80:150;render();}
+function ffxAppearanceExtras(){
+  return`<span class="st-label mt12" style="margin-top:16px">Language <span class="ffx-beta">beta</span></span>
+    <select class="inp mb6" onchange="setLang(this.value)">${Object.entries(FFX_LANGS).map(([k,v])=>`<option value="${k}" ${(uxPrefs.lang||"en")===k?"selected":""}>${v}</option>`).join("")}</select>
+    <div class="fz10 muted mb16">Translates the main buttons, tabs and Home headings. Translations are a first draft — corrections are welcome.</div>
+    <div class="toggle-wrap mb6"><div><div class="fz12 fw6">⚡ Lite mode</div><div class="fz10 muted mt4">For older or low-memory phones: turns off animations, blur and shadows, and shows fewer rows at once.</div></div><label class="toggle"><input type="checkbox" ${uxPrefs.lite?"checked":""} onchange="setLite(this.checked)"><span class="toggle-slider"></span></label></div>`;
+}
+
+// ── family / household ledger via shared files ──
+function ffxDeviceId(){if(!ffx.deviceId){ffx.deviceId=uid();ffxSave();}return ffx.deviceId;}
+function ffxNoteDelete(t){
+  if(!t)return;const acc=accounts.find(a=>a.id===t.accountId||a.id===t.fromAccountId);
+  if(acc&&acc.shared){ffx.sharedDeletes=ffx.sharedDeletes||[];ffx.sharedDeletes.push({id:t.id,at:new Date().toISOString()});if(ffx.sharedDeletes.length>2000)ffx.sharedDeletes.shift();}
+}
+function toggleSharedAccount(id,on){const a=accounts.find(x=>x.id===id);if(!a)return;a.shared=on;save();ffxRender();}
+function exportFamilyUpdate(){
+  const shared=accounts.filter(a=>a.shared);if(!shared.length)return alert("Mark at least one account as shared first.");
+  const ids=new Set(shared.map(a=>a.id));
+  const list=txns.filter(t=>t.type==="transfer"?ids.has(t.fromAccountId)&&ids.has(t.toAccountId):ids.has(t.accountId)).map(t=>{const c={...t};delete c.receipt;delete c.needsReview;c.addedBy=c.addedBy||profile.name||"";return c;});
+  const pkg={format:"financeflow-family",version:1,from:profile.name||"Someone",device:ffxDeviceId(),sentAt:new Date().toISOString(),
+    accounts:shared.map(a=>({id:a.id,name:a.name,type:a.type,color:a.color,currency:a.currency||currency.code})),txns:list,deletes:(ffx.sharedDeletes||[]).slice(-500)};
+  ffx.lastFamilySent=pkg.sentAt;save();
+  saveOrDownload("financeflow-family-"+(profile.name||"me").replace(/[^a-z0-9]+/gi,"-").toLowerCase()+"-"+ffxToday()+".json",JSON.stringify(pkg),"application/json");
+}
+function importFamilyUpdate(){
+  let inp=$("ffxFamilyInput");
+  if(!inp){inp=document.createElement("input");inp.type="file";inp.accept=".json,application/json";inp.id="ffxFamilyInput";inp.style.display="none";inp.onchange=()=>{const f=inp.files[0];if(!f)return;if(f.size>20*1024*1024)return alert("That file is too large.");const r=new FileReader();r.onload=()=>ffxMergeFamily(String(r.result));r.readAsText(f);};document.body.appendChild(inp);}
+  inp.value="";inp.click();
+}
+function ffxMergeFamily(raw){
+  let p;try{p=JSON.parse(raw);}catch(e){return alert("That isn't a FinanceFlow family file.");}
+  if(!p||p.format!=="financeflow-family"||!Array.isArray(p.txns)||!Array.isArray(p.accounts))return alert("That isn't a FinanceFlow family file.");
+  if(p.device&&p.device===ffx.deviceId)return alert("This file came from this phone.");
+  const accIds=new Set(accounts.map(a=>a.id)),newAccs=p.accounts.filter(a=>a&&typeof a.id==="string"&&typeof a.name==="string"&&!accIds.has(a.id));
+  const allAcc=new Set([...accIds,...newAccs.map(a=>a.id)]);
+  const ok=t=>t&&typeof t.id==="string"&&FinanceCore.date(t.date)&&Number(t.amount)>0&&(t.type==="transfer"?allAcc.has(t.fromAccountId)&&allAcc.has(t.toAccountId):["income","expense"].includes(t.type)&&allAcc.has(t.accountId));
+  const incoming=p.txns.filter(ok),bad=p.txns.length-incoming.length;
+  const adds=[],changes=[];
+  incoming.forEach(t=>{const cur=txns.find(x=>x.id===t.id);if(!cur)adds.push(t);else{const keys=["date","amount","type","category","subcategory","accountId","description","fromAccountId","toAccountId","receivedAmount"];if(keys.some(k=>String(cur[k]??"")!==String(t[k]??"")))changes.push([cur,t]);}});
+  const dels=(p.deletes||[]).map(d=>txns.find(x=>x.id===d.id)).filter(Boolean);
+  if(!adds.length&&!changes.length&&!dels.length&&!newAccs.length)return showToast("You're already up to date with "+(p.from||"them"),"green");
+  if(!confirm(`Update from ${p.from||"family"} (${new Date(p.sentAt).toLocaleDateString()}):\n\n• ${adds.length} new\n• ${changes.length} changed (their version is kept)\n• ${dels.length} deleted\n${newAccs.length?`• ${newAccs.length} new shared account${newAccs.length>1?"s":""}\n`:""}${bad?`• ${bad} skipped (invalid)\n`:""}\nApply?`))return;
+  const before={txns:JSON.parse(JSON.stringify(txns)),accounts:JSON.parse(JSON.stringify(accounts))};
+  newAccs.forEach(a=>accounts.push({id:a.id,name:a.name,type:a.type||"bank",color:a.color||"#6366f1",currency:a.currency||currency.code,shared:true}));
+  adds.forEach(t=>txns.push({...t,sharedFrom:p.from||""}));
+  changes.forEach(([cur,t])=>Object.assign(cur,t,{sharedFrom:p.from||""}));
+  dels.forEach(t=>txns.splice(txns.indexOf(t),1));
+  ffx.lastFamilyReceived={from:p.from,at:new Date().toISOString()};save();render();ffxRender();haptic("success");
+  showUndoToast("👨‍👩‍👧 Merged update from "+(p.from||"family"),()=>{txns=before.txns;accounts=before.accounts;save();});
+}
+function ffxFamilyHTML(){
+  return`<div class="ffx-hero"><div class="fz11 muted">Share a household ledger — no account, no cloud</div><div class="ffx-hero-num" style="font-size:22px">Family ledger</div><div class="fz11 muted">Mark the accounts you share (a house account, joint savings). Send an update file over WhatsApp; the other phone opens it here to merge.</div></div>
+    <div class="st-label">Shared accounts</div><div class="card" style="padding:4px 14px">${accounts.map(a=>`<div class="toggle-wrap" style="padding:8px 0"><div class="fz12 fw6">${esc(a.name)}</div><label class="toggle"><input type="checkbox" ${a.shared?"checked":""} onchange="toggleSharedAccount('${escJs(a.id)}',this.checked)"><span class="toggle-slider"></span></label></div>`).join("")}</div>
+    <div class="grid2 mt12"><button class="btn btn-p" style="justify-content:center;padding:13px" onclick="exportFamilyUpdate()">📤 Send update</button><button class="btn btn-g" style="justify-content:center;padding:13px" onclick="importFamilyUpdate()">📥 Receive update</button></div>
+    <div class="fz10 muted mt10">${ffx.lastFamilySent?"Last sent "+fmtD(ffx.lastFamilySent.slice(0,10))+". ":""}${ffx.lastFamilyReceived?"Last received from "+esc(ffx.lastFamilyReceived.from||"family")+" "+fmtD(ffx.lastFamilyReceived.at.slice(0,10))+".":""}</div>
+    <div class="card mt12"><div class="fz12 fw7 mb6">How it works</div><div class="fz11 muted" style="line-height:1.6">• Only transactions in shared accounts go in the file.<br>• New entries are added, edited ones take the sender's version, and deletions carry over.<br>• You confirm before anything changes, and can undo straight after.<br>• Both phones need FinanceFlow; the file is plain JSON, so share it only with people you trust.</div></div>`;
+}
+
+// register the new tools
+FFX_TOOLS.push({id:"scan",icon:"📷",label:"Scan receipt",sub:"Photo or screenshot"},{id:"assistant",icon:"🤖",label:"AI assistant",sub:"Ask with your Claude key"},{id:"wifi",icon:"💻",label:"Wi-Fi editor",sub:"Edit on a computer"},{id:"family",icon:"👨‍👩‍👧",label:"Family ledger",sub:"Share via WhatsApp"});
+FFX_RENDER.assistant=ffxAssistantHTML;FFX_RENDER.wifi=ffxLanHTML;FFX_RENDER.family=ffxFamilyHTML;
+FFX_RENDER.scan=()=>`<div class="ffx-hero"><div class="fz11 muted">Read on this phone — nothing is uploaded</div><div class="ffx-hero-num" style="font-size:22px">Scan a receipt or transfer screenshot</div><div class="fz11 muted">Works with POS slips and screenshots from OPay, Moniepoint, Kuda, PalmPay and bank apps. FinanceFlow reads the amount, date, who you paid and the reference, then lets you check before saving.</div></div><button class="btn btn-p w100" style="justify-content:center;padding:13px" onclick="startReceiptScan()">📷 Choose a photo or screenshot</button><div class="fz10 muted mt10">Tip: take the photo first with your camera app, flat and well lit, then pick it here.</div>`;

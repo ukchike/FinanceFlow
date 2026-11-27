@@ -4,6 +4,10 @@
      access to sensitive data" block on sideloaded apps. Kept out of the "standard" flavor so
      the default build installs cleanly. -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Full build only: the optional AI assistant (Claude API with the user's own key) and the
+         Wi-Fi desktop editor (a server on the local network) both need network sockets. Both are
+         off until the user turns them on. -->
+    <uses-permission android:name="android.permission.INTERNET" />
     <application>
         <service
             android:name="com.financeflow.app.BankAlertListenerService"
