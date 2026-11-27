@@ -174,7 +174,7 @@ test('navigation identifies current page and recommended layout keeps financial 
   const run=app();run(`V='transactions';renderNav();`);
   assert.ok(run(`$('bnav').innerHTML`).includes('aria-label="Transactions" aria-current="page"'));
   run(`homeLayout=['recent','balance'];hiddenHomeSections=['budget'];restoreDefaultHome();`);
-  assert.equal(run('homeLayout.slice(0,6).join(",")'),'balance,pulse,accounts,stats,budget,recent');
+  assert.equal(run('homeLayout.slice(0,7).join(",")'),'balance,pulse,tools,accounts,stats,budget,recent');
   assert.equal(run('showNetworthChartHome'),false);assert.equal(run('hiddenHomeSections.join(",")'),'trend');
 });
 

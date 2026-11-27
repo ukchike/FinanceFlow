@@ -693,14 +693,14 @@ let homeChartMode="week"; // Daily income/expense trend card: week or month view
 // chart) that could only be moved as a single block. Split into 3 independently orderable keys
 // so each can be placed anywhere on Home — or turned off Home entirely (see showBalanceHome
 // etc. below) and shown under Profile instead.
-const DEFAULT_HOME_LAYOUT=["balance","pulse","accounts","stats","budget","recent","insights","goals","chart","trend","networthchart"];
+const DEFAULT_HOME_LAYOUT=["balance","pulse","tools","accounts","stats","budget","recent","insights","goals","chart","trend","networthchart"];
 let homeLayout=DEFAULT_HOME_LAYOUT.slice(); // Home section order
 let showBalanceHome=true,showAccountsHome=true,showNetworthChartHome=false;
 // Every other Home card (stats/chart/trend/insights/budget/recent/goals) can be hidden too —
 // balance/accounts/networthchart get their own flags above because those specifically fall back
 // to showing under Profile when off; these just disappear from Home with no fallback location.
 let hiddenHomeSections=["trend"];
-const HOME_SECTION_LABELS={balance:"Total Balance",pulse:"Money Pulse & Tools",accounts:"Accounts",networthchart:"Balance History",goals:"Goals",stats:"Quick Stats",chart:"Daily Trend",trend:"6-Month Trend",insights:"Insights",budget:"Budget",recent:"Recent Transactions"};
+const HOME_SECTION_LABELS={balance:"Total Balance",pulse:"Left to Spend",tools:"Money Tools",accounts:"Accounts",networthchart:"Balance History",goals:"Goals",stats:"Quick Stats",chart:"Daily Trend",trend:"6-Month Trend",insights:"Insights",budget:"Budget",recent:"Recent Transactions"};
 function isHomeSectionHidden(key){
   if(key==="balance")return!showBalanceHome;
   if(key==="accounts")return!showAccountsHome;
@@ -1078,7 +1078,7 @@ function load(){
   try{const cc=appStorage.getItem("ffd_currency");if(cc){const found=CURRENCIES.find(c=>c.code===cc);if(found)currency=found;}}catch(e){}
   try{const hc=appStorage.getItem("ffd_hidecats");if(hc)hiddenDefaultCats=JSON.parse(hc);}catch(e){}
   try{const ba=appStorage.getItem("ffd_bankalerts");if(ba)bankAlertsEnabled=JSON.parse(ba);}catch(e){}
-  try{const hl=appStorage.getItem("ffd_homelayout");if(hl){let arr=expandNetworthKey(JSON.parse(hl));const valid=["balance","pulse","accounts","networthchart","goals","stats","chart","trend","insights","budget","recent"];if(Array.isArray(arr)&&arr.every(x=>valid.includes(x))&&arr.length>=6){if(!arr.includes("pulse"))arr.splice(arr.indexOf("balance")+1,0,"pulse");valid.forEach(k=>{if(!arr.includes(k))arr.unshift(k);});homeLayout=arr;}}}catch(e){}
+  try{const hl=appStorage.getItem("ffd_homelayout");if(hl){let arr=expandNetworthKey(JSON.parse(hl));const valid=["balance","pulse","tools","accounts","networthchart","goals","stats","chart","trend","insights","budget","recent"];if(Array.isArray(arr)&&arr.every(x=>valid.includes(x))&&arr.length>=6){if(!arr.includes("pulse"))arr.splice(arr.indexOf("balance")+1,0,"pulse");if(!arr.includes("tools"))arr.splice(arr.indexOf("pulse")+1,0,"tools");valid.forEach(k=>{if(!arr.includes(k))arr.unshift(k);});homeLayout=arr;}}}catch(e){}
   try{const co=appStorage.getItem("ffd_catorder");if(co)catOrder=JSON.parse(co);}catch(e){}
   try{const g=appStorage.getItem("ffd_goals");if(g)goals=JSON.parse(g);}catch(e){}
   try{const ut=appStorage.getItem("ffd_usertags");if(ut)userTags=JSON.parse(ut);}catch(e){}
@@ -1611,6 +1611,7 @@ function rDash(f,inc,exp){
   const sections={
     balance:totalBalanceCardHTML(tb,netChange,foreignAccCount),
     pulse:ffxPulseHTML(),
+    tools:ffxToolsHTML(),
     accounts:accountDeckHTML(tb),
     networthchart:networthChartCardHTML(),
     goals:goals.length?`<div class="card"><div class="flex-b mb8"><span class="fz12 fw7">&#127942; Goals</span><button class="btn btn-g btn-sm" onclick="openSettings('goals')">Manage</button></div>${goals.slice(0,3).map(g=>{const pct=g.target>0?Math.min((g.saved/g.target)*100,100):0;const reached=g.saved>=g.target;return`<div class="mb8"><div class="flex-b fz10"><span class="fw6">${esc(g.name)}</span><span class="muted">${fmtK(g.saved)}/${fmtK(g.target)}</span></div><div class="bar-track"><div class="bar-fill" style="width:${pct}%;background:${reached?"var(--green)":g.color}"></div></div></div>`;}).join("")}</div>`:"",
@@ -2783,10 +2784,10 @@ function applyBackupData(d){
   hiddenDefaultCats=d.hiddenDefaultCats&&typeof d.hiddenDefaultCats==="object"?d.hiddenDefaultCats:{expense:[],income:[]};
   if(!Array.isArray(hiddenDefaultCats.expense))hiddenDefaultCats.expense=[];
   if(!Array.isArray(hiddenDefaultCats.income))hiddenDefaultCats.income=[];
-  const validSecs=["balance","pulse","accounts","networthchart","goals","stats","chart","trend","insights","budget","recent"];
+  const validSecs=["balance","pulse","tools","accounts","networthchart","goals","stats","chart","trend","insights","budget","recent"];
   if(Array.isArray(d.homeLayout)){
     const arr=expandNetworthKey(d.homeLayout);
-    if(arr.every(x=>validSecs.includes(x))){validSecs.forEach(k=>{if(!arr.includes(k))arr.push(k);});homeLayout=arr;}
+    if(arr.every(x=>validSecs.includes(x))){if(!arr.includes("pulse"))arr.splice(arr.indexOf("balance")+1,0,"pulse");if(!arr.includes("tools"))arr.splice(arr.indexOf("pulse")+1,0,"tools");validSecs.forEach(k=>{if(!arr.includes(k))arr.push(k);});homeLayout=arr;}
   }
   if(d.homeCards&&typeof d.homeCards==="object"){showBalanceHome=d.homeCards.balance!==false;showAccountsHome=d.homeCards.accounts!==false;showNetworthChartHome=d.homeCards.networthchart!==false;}
   hiddenHomeSections=Array.isArray(d.hiddenHomeSections)?d.hiddenHomeSections:[];

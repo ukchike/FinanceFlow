@@ -671,9 +671,14 @@ function ffxPulseHTML(){
     ${ffxPacingSVG(pace)}<div class="flex-b fz9 muted"><span>${fmtK(pace.spent)} spent of ${fmtK(pace.limit)} ${pace.src==="budget"?"monthly budgets":"(last month's spending)"}</span><span>Runway <b class="${tone==="bad"?"red":tone==="warn"?"warn":""}">${days===null?"—":days>999?"999+":days} days</b></span></div>`
     :`<div class="flex-b"><div><div class="ffx-eyebrow">${T("Money runway")}</div><div class="ffx-runway ${tone}">${days===null?"—":days>999?"999+":days}<span> day${days===1?"":"s"}</span></div><div class="fz10 muted">${days===null?"Record some spending to see how long your money lasts":"Your balance at your usual "+fmtK(rw.avg)+"/day spending"}</div></div>
     <button class="ffx-pulse-btn" onclick="openTool('forecast')" aria-label="Open forecast">📈</button></div>`;
-  const ring=ffxTopCategories(8);
-  return`<div class="card ffx-pulse">${head}
-    <div class="ffx-eyebrow mt12">${T("Log in one tap")}</div>
+  window._ffxPulseData={chips,rev};
+  return`<div class="card ffx-pulse">${head}</div>`;
+}
+function ffxToolsHTML(){
+  if(!window._ffxPulseData)ffxPulseHTML();
+  const {chips,rev}=window._ffxPulseData,ring=ffxTopCategories(8);
+  return`<div class="card ffx-pulse">
+    <div class="ffx-eyebrow">${T("Log in one tap")}</div>
     <div class="ffx-ring">${ring.map(([c,s])=>`<button onclick="ffxQuickCat('${escJs(c)}','${escJs(s)}')" aria-label="Add ${esc(s||c)} expense"><span style="background:${clr(c)}22;color:${clr(c)};border-color:${clr(c)}55">${catIcon(c)}</span><em>${esc(s||c)}</em></button>`).join("")}</div>
     <div class="ffx-qe"><span>⚡</span><input id="ffxQuickInput" placeholder="${esc(T("Or type: “5k fuel cash”, “+250k salary gtbank”"))}" enterkeyhint="done" onkeydown="ffxQuickKey(event)"><button class="ffx-qe-cam" onclick="startReceiptScan()" aria-label="Scan a receipt">📷</button><button onclick="openQuickEntry($('ffxQuickInput').value)" aria-label="Quick add">Add</button></div>
     ${chips.length?`<div class="ffx-pchips">${chips.join("")}</div>`:""}
