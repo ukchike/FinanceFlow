@@ -478,6 +478,18 @@ public class MainActivity extends AppCompatActivity {
         }
 
         @JavascriptInterface
+        public String getSystemAccent(String mode) {
+            if (Build.VERSION.SDK_INT < 31) return "";
+            try {
+                int id = "light".equals(mode) ? android.R.color.system_accent1_600 : android.R.color.system_accent1_300;
+                int c = getResources().getColor(id, getTheme());
+                return String.format("#%06X", 0xFFFFFF & c);
+            } catch (Exception e) {
+                return "";
+            }
+        }
+
+        @JavascriptInterface
         public void haptic(String kind) {
             runOnUiThread(() -> {
                 if (webView == null) return;

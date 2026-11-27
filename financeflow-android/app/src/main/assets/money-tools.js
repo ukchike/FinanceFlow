@@ -12,7 +12,7 @@ const FFX_DAY=864e5;
 function ffxFresh(){return{debts:[],ajo:[],reversalLog:[],dismissedSubs:[],templates:[],fx:{code:"USD",rates:[]}};}
 function ffxNormalize(d){
   const f=ffxFresh();if(!d||typeof d!=="object")return f;
-  for(const k of ["debts","ajo","reversalLog","dismissedSubs","templates"])if(Array.isArray(d[k]))f[k]=d[k];
+  for(const k of ["debts","ajo","reversalLog","dismissedSubs","templates","streakRepairs"])if(Array.isArray(d[k]))f[k]=d[k];
   if(d.fx&&typeof d.fx==="object"){f.fx.code=typeof d.fx.code==="string"?d.fx.code:"USD";f.fx.rates=Array.isArray(d.fx.rates)?d.fx.rates.filter(r=>r&&FinanceCore.date(r.date)&&Number(r.rate)>0):[];}
   return f;
 }
@@ -252,8 +252,9 @@ function ffxRecapHTML(){
     ${r.biggest?`<div class="ffx-rl mt12">Biggest purchase</div><div class="ffx-recap-row"><span>${esc(r.biggest.description||r.biggest.category)}</span><b>${fmtK(ffxPA(r.biggest))}</b></div>`:""}
     ${r.payee?`<div class="ffx-rl mt12">Most frequent</div><div class="ffx-recap-row"><span>${esc(r.payee[0])}</span><b>${r.payee[1]}×</b></div>`:""}
     ${r.weekday?`<div class="fz11 mt12" style="opacity:.85">You spend the most on <b>${r.weekday}</b>.</div>`:""}
+    <div class="fz11 mt8" style="opacity:.9">${ffxLine("saved",r.rate)}</div>
   </div>
-  <button class="btn btn-p w100 mt12" style="justify-content:center" onclick="shareRecap()">📤 Share my recap</button>`
+  <div class="flex g6 mt12"><button class="btn btn-p" style="flex:1;justify-content:center" onclick="openRecapStory()">▶ Play story</button><button class="btn btn-g" style="flex:1;justify-content:center" onclick="shareRecap()">📤 Share</button></div>`
   :`<div class="empty-state"><div class="empty-ic">📅</div><div class="fz13 fw7">Nothing recorded for ${esc(r.label)}</div></div>`}`;
 }
 function shareRecap(){
@@ -630,7 +631,7 @@ function ffxHubHTML(){return`<div class="ffx-grid">${FFX_TOOLS.map(t=>`<button c
 function openTool(id){if(typeof notifOpen!=="undefined"&&notifOpen)closeNotifCenter();if(ffxView&&ffxView!==id)ffxStack.push(ffxView);ffxView=id;ffxDetail=null;ffxRender();const b=document.querySelector("#toolsPanel .settings-body");if(b)b.scrollTop=0;}
 function closeTools(){ffxView=null;ffxStack=[];ffxDetail=null;ffxState.ajoForm=ffxState.debtForm=ffxState.splitForm=false;const p=$("toolsPanel");if(p)p.innerHTML="";}
 function ffxBack(){if(ffxDetail){ffxDetail=null;ffxRender();return;}if(ffxState.ajoForm||ffxState.debtForm||ffxState.splitForm){ffxState.ajoForm=ffxState.debtForm=ffxState.splitForm=false;ffxRender();return;}if(ffxStack.length){ffxView=ffxStack.pop();ffxRender();return;}closeTools();}
-function ffxHandleBack(){if(!ffxView)return false;const po=$("pickerOverlay");if(po&&po.innerHTML.trim())return false;const mc=$("modal-container");if(mc&&mc.innerHTML.trim())return false;ffxBack();return true;}
+function ffxHandleBack(){if(ffxStoryOpen()){closeRecapStory();return true;}if(!ffxView)return false;const po=$("pickerOverlay");if(po&&po.innerHTML.trim())return false;const mc=$("modal-container");if(mc&&mc.innerHTML.trim())return false;ffxBack();return true;}
 function ffxRender(){
   if(!ffxView)return;
   let p=$("toolsPanel");if(!p){p=document.createElement("div");p.id="toolsPanel";document.body.appendChild(p);}
@@ -648,17 +649,18 @@ function ffxPulseHTML(){
   let fc=null;try{fc=ffxForecast(30);}catch(e){}
   const pace=ffxPacing();
   const chips=[];
+  const sc=ffxStreakChip();if(sc)chips.push(sc);
   if(rev)chips.push(`<button class="ffx-pchip accent" onclick="openTool('review')">📥 ${rev} to review</button>`);
   if(pend.length)chips.push(`<button class="ffx-pchip warn" onclick="openTool('reversals')">⏳ ${pend.length} awaiting reversal · ${fmtK(pend.reduce((s,t)=>s+ffxPA(t),0))}</button>`);
   if(fc&&fc.low.v<0)chips.push(`<button class="ffx-pchip bad" onclick="openTool('forecast')">⚠️ Balance may dip below zero ${fmtD(fc.low.date)}</button>`);
-  if(spikes[0])chips.push(`<button class="ffx-pchip warn" onclick="goTo('stats')">📊 ${esc(spikes[0].cat)} is ${spikes[0].ratio.toFixed(1)}× your usual week</button>`);
+  if(spikes[0])chips.push(`<button class="ffx-pchip warn" onclick="goTo('stats')">📊 ${ffxLine("spike",esc(spikes[0].cat),spikes[0].ratio.toFixed(1))}</button>`);
   if(subs.length)chips.push(`<button class="ffx-pchip" onclick="openTool('subs')">🔁 ${subs.length} repeat bill${subs.length>1?"s":""} found · ${fmtK(subs.reduce((s,x)=>s+x.monthly,0))}/mo</button>`);
-  if(fees>0)chips.push(`<button class="ffx-pchip" onclick="openTool('fees')">🏦 Fees this month ${fmtK(fees)}</button>`);
+  if(fees>0)chips.push(`<button class="ffx-pchip" onclick="openTool('fees')">🏦 ${ffxLine("fees",fmtK(fees))}</button>`);
   if(owed>0)chips.push(`<button class="ffx-pchip good" onclick="openTool('debts')">🤝 Owed to you ${fmtK(owed)}</button>`);
   const days=rw.days,tone=days===null?"":days<14?"bad":days<45?"warn":"good";
   const head=pace?`<div class="flex-b" style="align-items:flex-start"><div style="min-width:0"><div class="ffx-eyebrow">${pace.left>=0?"Left to spend this month":"Over this month's plan"}</div>
       <div class="ffx-left ${pace.left<0?"bad":pace.ahead?"warn":"good"}">${fmt(Math.abs(pace.left))}</div>
-      <div class="fz11 muted">${pace.left>0?`<b class="${pace.ahead?"warn":"green"}">${fmtK(pace.perDay)}/day</b> for ${pace.daysLeft} day${pace.daysLeft===1?"":"s"} · `:""}${pace.ahead?"▲ spending faster than planned":"✓ on pace"}</div></div>
+      <div class="fz11 muted">${pace.left>0?`<b class="${pace.ahead?"warn":"green"}">${fmtK(pace.perDay)}/day</b> for ${pace.daysLeft} day${pace.daysLeft===1?"":"s"} · `:""}${pace.ahead?ffxLine("ahead"):ffxLine("onpace")}</div></div>
       <button class="ffx-pulse-btn" onclick="openTool('forecast')" aria-label="Open forecast">📈</button></div>
     ${ffxPacingSVG(pace)}<div class="flex-b fz9 muted"><span>${fmtK(pace.spent)} spent of ${fmtK(pace.limit)} ${pace.src==="budget"?"monthly budgets":"(last month's spending)"}</span><span>Runway <b class="${tone==="bad"?"red":tone==="warn"?"warn":""}">${days===null?"—":days>999?"999+":days} days</b></span></div>`
     :`<div class="flex-b"><div><div class="ffx-eyebrow">Money runway</div><div class="ffx-runway ${tone}">${days===null?"—":days>999?"999+":days}<span> day${days===1?"":"s"}</span></div><div class="fz10 muted">${days===null?"Record some spending to see how long your money lasts":"Your balance at your usual "+fmtK(rw.avg)+"/day spending"}</div></div>
@@ -693,13 +695,15 @@ function ffxScanNotifications(){
   ffxDetectSubscriptions(false).forEach(s=>pushNotif("sub:"+s.key,"sub","Repeat payment found: "+s.label,`${fmt(s.amount)} ${s.freq} — track it so you're reminded before it's due`,"tool:subs"));
   ffxDetectSubscriptions(true).forEach(s=>{if(s.priceUp)pushNotif(`subup:${s.key}:${s.last.id}`,"sub","Price went up: "+s.label,`${fmt(s.priceUp.from)} → ${fmt(s.priceUp.to)}`,"tool:subs");});
   const wk=getRangeFor("week",new Date()).startStr;
-  ffxSpikes().slice(0,3).forEach(s=>pushNotif(`spike:${s.cat}:${wk}`,"spike",`${s.cat} is ${s.ratio.toFixed(1)}× your usual week`,`${fmt(s.now)} in the last 7 days vs about ${fmt(s.avg)} normally`,"stats"));
+  ffxSpikes().slice(0,3).forEach(s=>pushNotif(`spike:${s.cat}:${wk}`,"spike",ffxLine("spike",s.cat,s.ratio.toFixed(1)),`${fmt(s.now)} in the last 7 days vs about ${fmt(s.avg)} normally`,"stats"));
   ffx.debts.forEach(d=>{const left=ffxDebtLeft(d);if(left>0&&d.due&&d.due<=ffxAddDays(today,1))pushNotif(`debt:${d.id}:${d.due}`,"debt",d.direction==="lent"?`${d.person} owes you ${fmtK(left)}`:`Repay ${d.person} ${fmtK(left)}`,d.due<today?"Overdue since "+fmtD(d.due):"Due "+fmtD(d.due),"tool:debts");});
   ffx.ajo.forEach(a=>ffxAjoRounds(a).forEach(r=>{
     if(!r.paid&&r.date>=ffxAddDays(today,-3)&&r.date<=ffxAddDays(today,1))pushNotif(`ajo:${a.id}:pay:${r.i}`,"ajo",`Ajo contribution due: ${a.name}`,`${fmt(a.amount)} · ${fmtD(r.date)} · ${r.collector} collects`,"tool:ajo");
     if(r.collector===a.me&&!r.collected&&r.date<=ffxAddDays(today,2)&&r.date>=ffxAddDays(today,-7))pushNotif(`ajo:${a.id}:collect:${r.i}`,"ajo",`Your ajo payout is due: ${a.name}`,`${fmt(Number(a.amount)*a.members.length)} on ${fmtD(r.date)}`,"tool:ajo");
   }));
   try{const f=ffxForecast(30);if(f.low.v<0)pushNotif("fc:"+today.slice(0,7)+":"+f.low.date.slice(0,7),"forecast","Your balance may run low",`At your usual spending it could dip to ${fmt(f.low.v)} around ${fmtD(f.low.date)}`,"tool:forecast");}catch(e){}
+  const st=ffxStreak2();if(st.streak>=2&&!st.thisWeek&&new Date().getDay()>=5)pushNotif("streak:"+ffxWeekKey(today),"challenge",`Keep your ${st.streak}-week streak`,"Log at least one transaction this week to keep it going","");
+  if(st.repairable)pushNotif("streakfix:"+st.prev,"challenge",`Your ${st.before}-week streak broke`,"You can repair it once a month — tap to open Home","");
   goals.forEach(g=>{if(!g.challenge||g.saved>=g.target)return;const st=ffxChallengeStep(g);if(!(g.challenge.checkins||[]).includes(st.key)&&(g.challenge.type==="daily"?new Date().getHours()>=18:new Date().getDay()>=5||new Date().getDay()===0))pushNotif(`chal:${g.id}:${st.key}`,"challenge",`Keep your ${FFX_CHALLENGES[g.challenge.type].label} going`,`Save ${fmt(st.amount)} to ${g.name} for ${st.label}`,"tool:challenges");});
 }
 
@@ -722,7 +726,9 @@ function uxPrivacyHTML(){
   return`<div class="card mb12"><div class="fz12 fw7 mb10">Privacy & feel</div>
     ${row("&#128584; Hide amounts","Masks balances and amounts everywhere. Also toggled with the eye button at the top.",privacyMode,"togglePrivacy()")}
     ${row("&#128737; Hide in recent apps","The app preview in the recent-apps screen is blanked so balances aren't visible.",uxPrefs.secureRecents,"setUxPref('secureRecents',this.checked)")}
-    ${row("&#128243; Vibration feedback","A light tap when you save, delete or swipe.",uxPrefs.haptics,"setUxPref('haptics',this.checked)")}</div>`;
+    ${row("&#128243; Vibration feedback","A light tap when you save, delete or swipe.",uxPrefs.haptics,"setUxPref('haptics',this.checked)")}
+    <div class="fz12 fw6 mt8">Insight tone</div><div class="fz10 muted mt4 mb8">How FinanceFlow talks about your spending on Home, in alerts and in your recap.</div>
+    <div class="tab-row"><button class="tab-btn ${ffxTone()==="gentle"?"active":""}" onclick="setTone('gentle')">🌿 Gentle</button><button class="tab-btn ${ffxTone()==="roast"?"active":""}" onclick="setTone('roast')">🔥 Roast me</button></div></div>`;
 }
 function haptic(kind){
   if(!uxPrefs.haptics)return;
@@ -894,3 +900,89 @@ function clearDemoData(){
 }
 function ffxDemoBanner(){return hasDemoData()?`<div class="ffx-demo"><span>👀 You're exploring <b>sample data</b></span><button onclick="clearDemoData()">Clear it</button></div>`:"";}
 function ffxInitUX(){updatePrivacyBtn();ffxInitGestures();}
+
+// ════════════════ Polish: device colour, recap story, weekly streaks, tone, lighter lists ════════════════
+// ── tone (opt-in roast, Cleo-style) ──
+function ffxTone(){return uxPrefs.tone==="roast"?"roast":"gentle";}
+function setTone(t){uxPrefs.tone=t;uxSavePrefs();haptic("light");render();showToast(t==="roast"?"🔥 Roast mode on — no feelings were spared":"🌿 Gentle mode on","green");}
+const FFX_LINES={
+  ahead:{gentle:"▲ spending faster than planned",roast:"▲ your wallet is running a marathon it never trained for"},
+  onpace:{gentle:"✓ on pace",roast:"✓ on pace — suspicious, but we'll allow it"},
+  spike:{gentle:(c,r)=>`${c} is ${r}× your usual week`,roast:(c,r)=>`${c} at ${r}× your usual week. Who hurt you?`},
+  fees:{gentle:f=>`Fees this month ${f}`,roast:f=>`You donated ${f} to your bank this month`},
+  recapTop:{gentle:c=>`${c} took the biggest share.`,roast:c=>`You and ${c} should just move in together.`},
+  noSpend:{gentle:n=>n?`${n} no-spend day${n===1?"":"s"} — nice.`:"No no-spend days this time.",roast:n=>n?`${n} no-spend day${n===1?"":"s"}. Were you asleep?`:"Zero no-spend days. Impressive, in a bad way."},
+  saved:{gentle:r=>r>0?`You kept ${r.toFixed(0)}% of what you earned.`:"Spending matched or beat income.",roast:r=>r>20?`Saved ${r.toFixed(0)}%. Look at you, a whole adult.`:r>0?`Saved ${r.toFixed(0)}%. Baby steps. Very small baby.`:"You spent more than you earned. Bold strategy."}
+};
+function ffxLine(key,...a){const v=FFX_LINES[key][ffxTone()];return typeof v==="function"?v(...a):v;}
+
+// ── weekly logging streak with one repair a month ──
+function ffxWeekKey(dateStr){return getRangeFor("week",FinanceCore.date(dateStr)||new Date()).startStr;}
+function ffxStreak2(){
+  const weeks=new Set(txns.filter(t=>!t.demo).map(t=>ffxWeekKey(t.date))),reps=new Set((ffx.streakRepairs||[]).map(r=>r.week));
+  const filled=w=>weeks.has(w)||reps.has(w);
+  const cur=ffxWeekKey(ffxToday()),prev=ffxAddDays(cur,-7);
+  const run=from=>{let n=0,w=from;while(filled(w)&&n<520){n++;w=ffxAddDays(w,-7);}return n;};
+  const streak=run(filled(cur)?cur:prev);
+  const lastRepair=(ffx.streakRepairs||[]).reduce((m,r)=>r.on>m?r.on:m,"");
+  const before=!filled(prev)?run(ffxAddDays(prev,-7)):0;
+  const repairable=!filled(prev)&&before>=2&&(!lastRepair||ffxDaysBetween(lastRepair,ffxToday())>=30);
+  return{streak,thisWeek:filled(cur),repairable,before,prev};
+}
+function repairStreak(){
+  const s=ffxStreak2();if(!s.repairable)return;
+  if(!confirm(`Repair your ${s.before}-week streak? You get one repair every 30 days.`))return;
+  ffx.streakRepairs=ffx.streakRepairs||[];ffx.streakRepairs.push({week:s.prev,on:ffxToday()});save();haptic("success");render();showToast("🩹 Streak repaired — log something this week to keep it going","green");
+}
+function ffxStreakChip(){
+  const s=ffxStreak2();
+  if(s.repairable)return`<button class="ffx-pchip warn" onclick="repairStreak()">🩹 Repair your ${s.before}-week logging streak</button>`;
+  if(s.streak>=2)return`<span class="ffx-pchip streak">🔥 ${s.streak}-week logging streak${s.thisWeek?"":" · log this week to keep it"}</span>`;
+  return"";
+}
+
+// ── device (Material You) accent colour ──
+let accentAuto=false;
+function ffxHexToRgb(h){const m=/^#?([0-9a-f]{6})$/i.exec(h||"");if(!m)return null;const n=parseInt(m[1],16);return[(n>>16)&255,(n>>8)&255,n&255].join(",");}
+function ffxDeviceAccent(){try{if(window.Android&&window.Android.getSystemAccent){const h=window.Android.getSystemAccent(theme==="light"?"light":"dark");const rgb=ffxHexToRgb(h);if(rgb)return{n:"Device",h:h.startsWith("#")?h:"#"+h,rgb};}}catch(e){}return null;}
+function setAccentAuto(){const d=ffxDeviceAccent();if(!d)return showToast("Your phone doesn't share a system colour (needs Android 12+)","warn");accentAuto=true;accentColor=d;applyAccent();save();render();haptic("light");}
+function ffxApplyAutoAccent(){if(!accentAuto)return;const d=ffxDeviceAccent();if(d){accentColor=d;applyAccent();}}
+function ffxAccentAutoSwatch(){const d=ffxDeviceAccent();if(!d)return"";return`<button type="button" class="color-swatch device ${accentAuto?"sel":""}" style="background:conic-gradient(from 90deg,${d.h},#22c55e,#f97316,#ec4899,${d.h})" onclick="setAccentAuto()" title="Match my phone"></button>`;}
+
+// ── recap story (swipeable month in review) ──
+let ffxStoryIdx=0,ffxStoryTimer=null,ffxStorySlides=[];
+function ffxBuildStory(r){
+  const slides=[
+    {bg:"linear-gradient(160deg,#1e3a8a,#4f46e5)",k:"Your "+r.label,big:fmt(r.E),s:`spent across ${r.count} transactions${r.change!==null?` · ${r.change>=0?"▲":"▼"} ${Math.abs(r.change).toFixed(0)}% vs before`:""}`},
+    {bg:"linear-gradient(160deg,#065f46,#10b981)",k:"Money in",big:fmt(r.I),s:ffxLine("saved",r.rate)}];
+  if(r.top.length)slides.push({bg:"linear-gradient(160deg,#7c2d12,#f97316)",k:"Top spending",big:catIcon(r.top[0][0])+" "+esc(r.top[0][0]),s:fmt(r.top[0][1])+" · "+ffxLine("recapTop",esc(r.top[0][0])),list:r.top.map(([c,v],i)=>`${i+1}. ${esc(c)} — ${fmtK(v)}`)});
+  if(r.biggest)slides.push({bg:"linear-gradient(160deg,#831843,#ec4899)",k:"Biggest purchase",big:fmt(ffxPA(r.biggest)),s:esc(r.biggest.description||r.biggest.category)+" · "+fmtD(r.biggest.date)});
+  slides.push({bg:"linear-gradient(160deg,#164e63,#06b6d4)",k:"No-spend days",big:String(r.noSpend),s:ffxLine("noSpend",r.noSpend)+(r.weekday?` You spend the most on ${r.weekday}.`:"")});
+  if(r.payee)slides.push({bg:"linear-gradient(160deg,#3b0764,#a855f7)",k:"Your regular",big:esc(r.payee[0]),s:`${r.payee[1]} times this period`});
+  slides.push({bg:"linear-gradient(160deg,#111827,#374151)",k:"Fees paid",big:fmt(r.fees),s:ffxLine("fees",fmt(r.fees)),end:true});
+  return slides;
+}
+function openRecapStory(){
+  const r=ffxRecapData(ffxState.recap||"month");if(!r.count)return showToast("Nothing to show for this period yet","warn");
+  ffxStorySlides=ffxBuildStory(r);ffxStoryIdx=0;
+  let p=$("storyPanel");if(!p){p=document.createElement("div");p.id="storyPanel";document.body.appendChild(p);}
+  ffxStoryRender();
+}
+function ffxStoryRender(){
+  const p=$("storyPanel");if(!p)return;const s=ffxStorySlides[ffxStoryIdx];
+  p.innerHTML=`<div class="ffx-story" style="background:${s.bg}">
+    <div class="ffx-story-bars">${ffxStorySlides.map((_,i)=>`<span class="${i<ffxStoryIdx?"done":i===ffxStoryIdx?"now":""}"></span>`).join("")}</div>
+    <button class="ffx-story-x" onclick="closeRecapStory()" aria-label="Close">✕</button>
+    <div class="ffx-story-body" key="${ffxStoryIdx}"><div class="ffx-story-k">${s.k}</div><div class="ffx-story-big">${s.big}</div><div class="ffx-story-s">${s.s}</div>${s.list?`<div class="ffx-story-list">${s.list.map(x=>`<div>${x}</div>`).join("")}</div>`:""}
+    ${s.end?`<button class="ffx-story-share" onclick="event.stopPropagation();shareRecap()">📤 Share my recap</button>`:""}</div>
+    <div class="ffx-story-nav"><div onclick="ffxStoryStep(-1)"></div><div onclick="ffxStoryStep(1)"></div></div></div>`;
+  clearTimeout(ffxStoryTimer);if(!s.end)ffxStoryTimer=setTimeout(()=>ffxStoryStep(1),5500);
+}
+function ffxStoryStep(d){const n=ffxStoryIdx+d;if(n<0)return;if(n>=ffxStorySlides.length)return closeRecapStory();ffxStoryIdx=n;haptic("light");ffxStoryRender();}
+function closeRecapStory(){clearTimeout(ffxStoryTimer);const p=$("storyPanel");if(p)p.innerHTML="";ffxStorySlides=[];}
+function ffxStoryOpen(){return ffxStorySlides.length>0;}
+
+// ── lighter History list for low-memory phones ──
+let txRenderLimit=150;
+function ffxLimitDates(dates,groups){let n=0;const out=[];for(const d of dates){out.push(d);n+=groups[d].length;if(n>=txRenderLimit)break;}window._txShown=n;return out;}
+function ffxMoreBtn(dates,groups){const total=dates.reduce((s,d)=>s+groups[d].length,0),left=total-(window._txShown||0);return left>0?`<button class="btn btn-g w100 ffx-more" onclick="txRenderLimit+=200;render()">Show ${Math.min(left,200)} more · ${left} older</button>`:"";}

@@ -436,6 +436,28 @@ body{font-variant-numeric:tabular-nums;letter-spacing:-.005em}
 /* colour is never the only signal: over-limit bars also get stripes */
 .bar-fill[style*="var(--red)"]{background-image:repeating-linear-gradient(45deg,rgba(255,255,255,.35) 0 4px,transparent 4px 9px)}
 body.privacy .ffx-pace polyline,body.privacy .ffx-pace circle{opacity:.35}
+/* ── Polish layer ── */
+.ffx-pchip.streak{border-color:rgba(245,158,11,.45);background:rgba(245,158,11,.12);color:var(--warn);cursor:default}
+.ffx-more{justify-content:center;border-radius:0!important;border:none!important;border-top:1px solid var(--border)!important;padding:14px}
+.color-swatch.device{position:relative}
+.color-swatch.device::after{content:"📱";position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:12px}
+#storyPanel:empty{display:none}
+.ffx-story{position:fixed;inset:0;z-index:320;color:#fff;display:flex;flex-direction:column;padding:calc(14px + env(safe-area-inset-top)) 20px calc(24px + env(safe-area-inset-bottom));animation:fadeIn .2s;transition:background .4s}
+.ffx-story-bars{display:flex;gap:4px}
+.ffx-story-bars span{flex:1;height:3px;border-radius:2px;background:rgba(255,255,255,.3);overflow:hidden;position:relative}
+.ffx-story-bars span.done{background:#fff}
+.ffx-story-bars span.now::after{content:"";position:absolute;inset:0;background:#fff;transform-origin:left;animation:storyBar 5.5s linear forwards}
+@keyframes storyBar{from{transform:scaleX(0)}to{transform:scaleX(1)}}
+.ffx-story-x{position:absolute;top:calc(26px + env(safe-area-inset-top));right:16px;z-index:2;width:36px;height:36px;border-radius:50%;border:none;background:rgba(0,0,0,.25);color:#fff;font-size:15px;cursor:pointer}
+.ffx-story-body{flex:1;display:flex;flex-direction:column;justify-content:center;animation:fadeInUp .35s cubic-bezier(.2,.8,.2,1);position:relative;z-index:1;pointer-events:none}
+.ffx-story-body button{pointer-events:auto}
+.ffx-story-k{font-size:14px;font-weight:700;text-transform:uppercase;letter-spacing:1px;opacity:.8}
+.ffx-story-big{font-size:46px;font-weight:800;letter-spacing:-.03em;line-height:1.05;margin:10px 0 12px;overflow-wrap:anywhere}
+.ffx-story-s{font-size:17px;line-height:1.45;opacity:.92;max-width:330px}
+.ffx-story-list{margin-top:18px;font-size:16px;font-weight:600;line-height:2;opacity:.95}
+.ffx-story-share{margin-top:28px;align-self:flex-start;border:none;background:#fff;color:#111;font:inherit;font-weight:800;font-size:15px;border-radius:14px;padding:13px 20px;cursor:pointer}
+.ffx-story-nav{position:absolute;inset:0;display:flex}.ffx-story-nav div{flex:1}
+@media(prefers-reduced-motion:reduce){.ffx-story-bars span.now::after{animation:none;transform:scaleX(1)}}
 </style>
 </head>
 <body>
@@ -916,7 +938,7 @@ function save(){
   appStorage.setItem("ffd_imports",JSON.stringify(importHistory));
   appStorage.setItem("ffd_bio",JSON.stringify(biometricEnabled));
   appStorage.setItem("ffd_theme",theme);
-  appStorage.setItem("ffd_accent",accentColor.h);
+  appStorage.setItem("ffd_accent",accentAuto?"auto":accentColor.h);
   appStorage.setItem("ffd_currency",currency.code);
   appStorage.setItem("ffd_hidecats",JSON.stringify(hiddenDefaultCats));
   appStorage.setItem("ffd_bankalerts",JSON.stringify(bankAlertsEnabled));
@@ -950,7 +972,7 @@ function load(){
   try{const r=appStorage.getItem("ffd_rec");if(r)recurring=JSON.parse(r);}catch(e){}
   try{const bio=appStorage.getItem("ffd_bio");if(bio)biometricEnabled=JSON.parse(bio);}catch(e){}
   try{const th=appStorage.getItem("ffd_theme");if(th==="light"||th==="dark")theme=th;else if(window.matchMedia&&window.matchMedia("(prefers-color-scheme: light)").matches)theme="light";}catch(e){}
-  try{const ac=appStorage.getItem("ffd_accent");if(ac){const found=ACCENT_COLORS.find(c=>c.h===ac);if(found)accentColor=found;}}catch(e){}
+  try{const ac=appStorage.getItem("ffd_accent");if(ac==="auto")accentAuto=true;else if(ac){const found=ACCENT_COLORS.find(c=>c.h===ac);if(found)accentColor=found;}}catch(e){}
   try{const cc=appStorage.getItem("ffd_currency");if(cc){const found=CURRENCIES.find(c=>c.code===cc);if(found)currency=found;}}catch(e){}
   try{const hc=appStorage.getItem("ffd_hidecats");if(hc)hiddenDefaultCats=JSON.parse(hc);}catch(e){}
   try{const ba=appStorage.getItem("ffd_bankalerts");if(ba)bankAlertsEnabled=JSON.parse(ba);}catch(e){}
@@ -972,9 +994,9 @@ function load(){
   if(appFlavor==="full"&&window.Android&&window.Android.setBankAlertsEnabled)window.Android.setBankAlertsEnabled(bankAlertsEnabled);
   if(remindersEnabled&&window.Android&&window.Android.scheduleReminders){window.Android.scheduleReminders();syncUpcomingBills();}
 }
-function applyTheme(){document.documentElement.setAttribute("data-theme",theme);const mc=document.querySelector('meta[name="theme-color"]');if(mc)mc.setAttribute("content",theme==="light"?"#e9ebef":"#000000");applyAccent();}
+function applyTheme(){document.documentElement.setAttribute("data-theme",theme);const mc=document.querySelector('meta[name="theme-color"]');if(mc)mc.setAttribute("content",theme==="light"?"#e9ebef":"#000000");ffxApplyAutoAccent();applyAccent();}
 function applyAccent(){document.documentElement.style.setProperty("--accent",accentColor.h);document.documentElement.style.setProperty("--accent-rgb",accentColor.rgb);}
-function setAccentColor(hex){const found=ACCENT_COLORS.find(c=>c.h===hex);if(found){accentColor=found;applyAccent();save();render();}}
+function setAccentColor(hex){const found=ACCENT_COLORS.find(c=>c.h===hex);if(found){accentAuto=false;accentColor=found;applyAccent();save();render();}}
 function toggleTheme(t){theme=t;applyTheme();save();render();}
 function toggleHomeCard(which,on){
   if(which==="showBalanceHome")showBalanceHome=on;
@@ -1133,7 +1155,7 @@ function renderNav(){
   const tc=$("txCount");if(tc)tc.textContent=txns.length.toLocaleString()+" transactions";
 }
 function goTo(v){
-  closePP();
+  closePP();txRenderLimit=150;
   if(settingsOpen){settingsOpen=false;const sp=document.getElementById("settingsPanel");if(sp)sp.innerHTML="";}
   // Leaving Transactions: drop multi-select. The floating select bar lives on document.body and
   // is only torn down by rTx, so without this it stayed pinned over Home/Stats/Budgets — where
@@ -1742,7 +1764,7 @@ function renderSettings(){
       <div class="tab-row mb12"><button class="tab-btn ${theme==="dark"?"active":""}" onclick="toggleTheme('dark')">&#127769; Dark</button><button class="tab-btn ${theme==="light"?"active":""}" onclick="toggleTheme('light')">&#9728; Light</button></div>
       <div class="fz10 muted mb16">Dark mode uses true black (great for OLED battery life). Light mode uses a soft grey background with white cards.</div>
       <span class="st-label">Accent Color</span>
-      <div class="swatch-row mb6">${ACCENT_COLORS.map(c=>`<button type="button" class="color-swatch ${accentColor.h===c.h?"sel":""}" style="background:${c.h}" onclick="setAccentColor('${c.h}')" title="${c.n}"></button>`).join("")}</div>
+      <div class="swatch-row mb6">${ffxAccentAutoSwatch()}${ACCENT_COLORS.map(c=>`<button type="button" class="color-swatch ${!accentAuto&&accentColor.h===c.h?"sel":""}" style="background:${c.h}" onclick="setAccentColor('${c.h}')" title="${c.n}"></button>`).join("")}</div>
       <div class="fz10 muted">Changes the color of buttons, highlights and the "+" add button throughout the app.</div>
     </div>`;
   }
@@ -3231,7 +3253,7 @@ function rTx(f,inc,exp){
   }
   const sorted=[...f].sort((a,b)=>b.date.localeCompare(a.date));const groups={};sorted.forEach(t=>{(groups[t.date]=groups[t.date]||[]).push(t);});const dates=Object.keys(groups).sort((a,b)=>b.localeCompare(a));
   $("main").innerHTML=ppHTML()+filterBarHTML+viewToggleHTML+`<div class="flex-b fz10 muted mb8"><span>${f.length} transactions</span><div class="flex g6"><span>In: <span class="green">${fmtK(inc)}</span> &middot; Out: <span class="red">${fmtK(exp)}</span></span><button class="btn btn-g btn-sm" onclick="exportCSV()">&#128196; Export CSV</button><button class="btn ${selectMode?"btn-p":"btn-g"} btn-sm" onclick="toggleSelectMode()">${selectMode?"Cancel":"Select"}</button></div></div>
-  <div class="card" style="padding:0;overflow:hidden">${dates.length?dates.map(d=>{const dayInc=groups[d].filter(t=>t.type==="income").reduce((s,t)=>FinanceCore.round(s+primaryAmount(t)),0);const dayExp=groups[d].filter(t=>t.type==="expense").reduce((s,t)=>FinanceCore.round(s+primaryAmount(t)),0);const dayItems=selectMode?groups[d]:groupSplits(groups[d]);return`<div class="date-hdr flex-b"><span>${fmtD(d)}</span><span class="date-hdr-tot"><span class="green">${fmtK(dayInc)}</span><span class="red">${fmtK(dayExp)}</span></span></div>${dayItems.map(t=>txListRow(t,selectMode)).join("")}`;}).join(""):'<div class="muted fz12 tac" style="padding:40px">No transactions found</div>'}</div>`;
+  <div class="card" style="padding:0;overflow:hidden">${dates.length?ffxLimitDates(dates,groups).map(d=>{const dayInc=groups[d].filter(t=>t.type==="income").reduce((s,t)=>FinanceCore.round(s+primaryAmount(t)),0);const dayExp=groups[d].filter(t=>t.type==="expense").reduce((s,t)=>FinanceCore.round(s+primaryAmount(t)),0);const dayItems=selectMode?groups[d]:groupSplits(groups[d]);return`<div class="date-hdr flex-b"><span>${fmtD(d)}</span><span class="date-hdr-tot"><span class="green">${fmtK(dayInc)}</span><span class="red">${fmtK(dayExp)}</span></span></div>${dayItems.map(t=>txListRow(t,selectMode)).join("")}`;}).join(""):'<div class="muted fz12 tac" style="padding:40px">No transactions found</div>'}${dates.length?ffxMoreBtn(dates,groups):""}</div>`;
   const si=$("si");if(si&&search){si.focus();si.setSelectionRange(search.length,search.length);}
   if(selectMode&&selectedTxIds.size){
     const bar=document.createElement("div");bar.id="selectBar";bar.className="select-bar";
